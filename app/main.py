@@ -95,8 +95,14 @@ async def execute_trade(
 ):
     """
     Execute manual trade
+    Uses BINANCE TH API v1.0.0 for trading operations
     """
     try:
+        from app.binance_client import get_binance_th_client
+        
+        # Convert symbol to Binance format (remove slash if present)
+        symbol = trade_request.symbol.replace('/', '')
+        
         # Create trade record
         trade = Trade(
             symbol=trade_request.symbol,
@@ -110,14 +116,35 @@ async def execute_trade(
         db.commit()
         db.refresh(trade)
         
-        # Execute trade via Binance (simplified)
-        # In production, implement actual Binance order execution
-        trade.status = "filled"
-        trade.filled_price = trade_request.price or 0
+        # Execute trade via Binance TH API v1
+        client = get_binance_th_client()
+        
+        if trade_request.price:
+            # LIMIT order
+            order = client.create_order(
+                symbol=symbol,
+                side=trade_request.side,
+                order_type='LIMIT',
+                quantity=trade_request.amount,
+                price=trade_request.price
+            )
+        else:
+            # MARKET order
+            order = client.create_order(
+                symbol=symbol,
+                side=trade_request.side,
+                order_type='MARKET',
+                quantity=trade_request.amount
+            )
+        
+        # Update trade record
+        trade.status = order.get('status', 'filled')
+        trade.filled_price = float(order.get('price', trade_request.price or 0))
         db.commit()
         
         return {
             "order_id": trade.id,
+            "exchange_order_id": order.get('orderId'),
             "status": trade.status,
             "symbol": trade.symbol,
             "side": trade.side,
@@ -125,7 +152,12 @@ async def execute_trade(
             "price": trade.filled_price
         }
     except Exception as e:
+        trade.status = "failed"
+        db.commit()
+        print(f"Trade execution error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @app.post("/api/grid-bot/{symbol}")
 async def start_grid_bot(
@@ -248,17 +280,26 @@ async def get_whale_movements(symbol: str):
 async def get_market_data(symbol: str, currency: str = "USD"):
     """
     Get current market data for symbol
+    Uses GLOBAL Binance API for reliable market data
     """
     try:
-        import ccxt
+        from app.binance_client import get_market_data_client
         
-        exchange = ccxt.binance({
-            'apiKey': os.getenv('BINANCE_API_KEY'),
-            'secret': os.getenv('BINANCE_SECRET'),
-        })
+        exchange = get_market_data_client()
         
-        ticker = exchange.fetch_ticker(symbol)
-        ohlcv = exchange.fetch_ohlcv(symbol, '1h', limit=24)
+        # Convert symbol format if needed (BTCUSDT -> BTC/USDT)
+        ccxt_symbol = symbol
+        if '/' not in symbol:
+            if 'USDT' in symbol:
+                ccxt_symbol = symbol.replace('USDT', '/USDT')
+            elif 'USD' in symbol:
+                ccxt_symbol = symbol.replace('USD', '/USD')
+        
+        # Get ticker data
+        ticker = exchange.fetch_ticker(ccxt_symbol)
+        
+        # Get OHLCV data
+        ohlcv = exchange.fetch_ohlcv(ccxt_symbol, '1h', limit=24)
         
         return {
             "symbol": symbol,
@@ -271,7 +312,10 @@ async def get_market_data(symbol: str, currency: str = "USD"):
             "currency": currency
         }
     except Exception as e:
+        print(f"Market data error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @app.get("/api/portfolio")
 async def get_portfolio(db: Session = Depends(get_db)):
@@ -295,9 +339,12 @@ async def get_portfolio(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Mount static files for production
-if os.path.exists("dist"):
-    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+# Mount static files for production (only if built)
+if os.path.exists("dist") and os.path.exists("dist/assets"):
+    try:
+        app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+    except Exception as e:
+        pass  # Ignore in development
 
 if __name__ == "__main__":
     import uvicorn

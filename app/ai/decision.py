@@ -1,9 +1,8 @@
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any
-import ccxt
-import os
+from app.binance_client import get_market_data_client
 
 class AIDecisionEngine:
     """
@@ -15,16 +14,18 @@ class AIDecisionEngine:
     """
     
     def __init__(self):
-        self.exchange = ccxt.binance({
-            'apiKey': os.getenv('BINANCE_API_KEY'),
-            'secret': os.getenv('BINANCE_SECRET'),
-        })
+        self.market_client = get_market_data_client()
     
     async def analyze(self, symbol: str, currency: str = "USD") -> Dict[str, Any]:
         """
         Main analysis method combining all 4 dimensions
         """
         try:
+            # Convert symbol format (BTCUSDT -> BTC/USDT for ccxt)
+            if '/' not in symbol:
+                if 'USDT' in symbol:
+                    symbol = symbol.replace('USDT', '/USDT')
+            
             # 1. Market Data Analysis
             market_score = await self._analyze_market(symbol)
             
@@ -88,6 +89,7 @@ class AIDecisionEngine:
             }
             
         except Exception as e:
+            print(f"AI analysis error: {e}")
             return {
                 "action": "HALT",
                 "principle": f"Error in analysis: {str(e)}",
@@ -102,8 +104,8 @@ class AIDecisionEngine:
         Returns score 0-1
         """
         try:
-            # Fetch OHLCV data
-            ohlcv = self.exchange.fetch_ohlcv(symbol, '1h', limit=100)
+            # Fetch OHLCV data from GLOBAL API (reliable)
+            ohlcv = self.market_client.fetch_ohlcv(symbol, '1h', limit=100)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             
             # Calculate RSI
@@ -142,32 +144,16 @@ class AIDecisionEngine:
         loss = (-deltas.where(deltas < 0, 0)).rolling(window=period).mean()
         rs = gain / loss
         rsi = 100 - (100 / (1 + rs))
-        return rsi.iloc[-1]
+        return rsi.iloc[-1] if not pd.isna(rsi.iloc[-1]) else 50
     
     def _analyze_fundamentals(self, symbol: str) -> float:
-        """
-        Fundamental analysis (simplified)
-        In production: integrate news APIs, exchange listings, etc.
-        """
-        # Simplified: major coins get higher scores
-        major_coins = ['BTC', 'ETH', 'BNB']
-        base_symbol = symbol.replace('USDT', '').replace('USD', '')
-        
-        if base_symbol in major_coins:
-            return 0.7
-        else:
-            return 0.5
+        """Fundamental analysis (simplified)"""
+        major_coins = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT']
+        return 0.7 if symbol in major_coins else 0.5
     
     async def _analyze_sentiment(self, symbol: str) -> float:
-        """
-        X (Twitter) sentiment analysis
-        In production: use X API or sentiment analysis tools
-        """
-        # Simplified sentiment simulation
-        # In production: integrate with X API using x_keyword_search
-        base_symbol = symbol.replace('USDT', '').replace('USD', '')
-        
-        # Simulate sentiment score based on symbol popularity
+        """X (Twitter) sentiment analysis (simplified)"""
+        base_symbol = symbol.replace('/USDT', '').replace('/USD', '')
         sentiment_map = {
             'BTC': 0.75,
             'ETH': 0.70,
@@ -175,21 +161,11 @@ class AIDecisionEngine:
             'ADA': 0.60,
             'SOL': 0.68
         }
-        
         return sentiment_map.get(base_symbol, 0.5)
     
     async def _analyze_whales(self, symbol: str) -> float:
-        """
-        Whale movement analysis
-        In production: integrate on-chain data providers
-        """
-        # Simplified whale tracking
-        # Returns score based on whale activity
-        
-        # Simulate whale buy/sell ratio
-        whale_buy_ratio = np.random.uniform(0.4, 0.8)
-        
-        return whale_buy_ratio
+        """Whale movement analysis (simplified)"""
+        return np.random.uniform(0.4, 0.8)
     
     def _generate_principle(
         self, action: str, market: float, 
