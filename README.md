@@ -29,5 +29,5 @@ Full-Stack AI-Powered Crypto Trading System
 
 1. Clone repository
 ```bash
-git clone https://github.com/yourusername/g-ai-trade.git
+git clone https://github.com/gunaex/g-ai-trade.git
 cd g-ai-trade
