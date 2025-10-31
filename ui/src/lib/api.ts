@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE = import.meta.env.PROD ? '/api' : 'http://localhost:8000/api'
+const API_BASE = (import.meta as any).env?.PROD ? '/api' : 'http://localhost:8000/api'
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -80,6 +80,28 @@ export interface Portfolio {
   roi_percent: number
 }
 
+// AI Force Trading Bot Interface
+export interface AIForceStatus {
+  is_running: boolean
+  symbol: string
+  daily_trades: number
+  start_balance: number
+  current_balance: number
+  profit_loss: number
+  profit_percent: number
+  position_side: string | null
+  entry_price: number | null
+  max_profit: number
+  max_loss: number
+}
+
+export interface AIForceConfig {
+  symbol: string
+  amount: number
+  max_profit: number
+  max_loss: number
+}
+
 // API Methods
 export const apiClient = {
   // Health Check
@@ -112,6 +134,69 @@ export const apiClient = {
   // Portfolio
   getPortfolio: () =>
     api.get<Portfolio>('/portfolio'),
+
+  // Account Balance (new)
+  getAccountBalance: () =>
+    api.get<{ balances: Array<{ asset: string; free: string; locked: string }> }>('/account/balance'),
+
+  // AI Force Trading Bot
+  startAIForceBot: (config: AIForceConfig) =>
+    api.post('/bot/ai-force/start', null, { params: config }),
+
+  stopAIForceBot: () =>
+    api.post('/bot/ai-force/stop'),
+
+  getAIForceStatus: () =>
+    api.get<AIForceStatus>('/bot/ai-force/status'),
+  
+  getAdvancedAnalysis: (symbol: string, currency: string = 'USD') =>
+    api.get<AdvancedAnalysis>(`/advanced-analysis/${symbol}?currency=${currency}`),
+
 }
+
+// Advanced AI Analysis Interface
+export interface AdvancedAnalysis {
+  action: 'BUY' | 'SELL' | 'HOLD' | 'HALT'
+  reason: string
+  confidence: number
+  current_price: number
+  stop_loss: number
+  take_profit: number
+  risk_reward_ratio: number
+  modules: {
+    regime: {
+      regime: string
+      confidence: number
+      allow_mean_reversion: boolean
+      adx: number
+      bb_width: number
+    }
+    sentiment: {
+      score: number
+      interpretation: string
+      should_trade: boolean
+      twitter: number
+      news: number
+    }
+    risk_levels: {
+      stop_loss_price: number
+      take_profit_price: number
+      stop_loss_pct: number
+      take_profit_pct: number
+      atr: number
+      volatility: number
+    }
+    reversal: {
+      is_bullish_reversal: boolean
+      is_bearish_reversal: boolean
+      confidence: number
+      patterns_detected: string[]
+      order_book_imbalance: number
+    }
+  }
+}
+
+
+
 
 export default apiClient

@@ -11,6 +11,8 @@ from app.db import engine, Base, get_db
 from app.ai.decision import AIDecisionEngine
 from app.models import Trade, GridBot, DCABot
 from sqlalchemy.orm import Session
+from app.trading_bot import ai_trading_bot
+from app.ai.advanced_modules import AdvancedAITradingEngine
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -349,3 +351,106 @@ if os.path.exists("dist") and os.path.exists("dist/assets"):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.get("/api/account/balance")
+async def get_account_balance():
+    """
+    Get account balances from Binance TH
+    """
+    try:
+        from app.binance_client import get_binance_th_client
+        
+        client = get_binance_th_client()
+        account = client.get_account()
+        
+        # Format response to match expected structure
+        return {
+            "balances": account.get('balances', [])
+        }
+    except Exception as e:
+        print(f"Balance fetch error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# AI Force Trading Bot Endpoints
+@app.post("/api/bot/ai-force/start")
+async def start_ai_force_bot(
+    symbol: str = "BTCUSDT",
+    amount: float = 0.01,
+    max_profit: float = 6.0,
+    max_loss: float = 4.0
+):
+    """
+    Start AI Force Trading Bot
+    - Automatically buys when price drops
+    - Automatically sells when price rises
+    - Stops at 6% profit or 4% loss per day
+    """
+    try:
+        result = await ai_trading_bot.start(symbol, amount, max_profit, max_loss)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/bot/ai-force/stop")
+async def stop_ai_force_bot():
+    """Stop AI Force Trading Bot"""
+    try:
+        result = ai_trading_bot.stop()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/bot/ai-force/status")
+async def get_ai_force_bot_status():
+    """Get AI Force Trading Bot status"""
+    try:
+        status = ai_trading_bot.get_status()
+        return status
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+# Initialize Advanced AI Engine
+advanced_ai_engine = AdvancedAITradingEngine()
+
+@app.get("/api/advanced-analysis/{symbol}")
+async def get_advanced_analysis(
+    symbol: str,
+    currency: str = "USD"
+):
+    """
+    Get Advanced AI Analysis using all 4 modules
+    - Market Regime Filter
+    - Sentiment Analysis
+    - Dynamic Risk Management
+    - Micro-Pattern Recognition
+    """
+    try:
+        from app.binance_client import get_market_data_client
+        
+        client = get_market_data_client()
+        
+        # Fetch OHLCV data
+        ohlcv_data = client.fetch_ohlcv(
+            symbol.replace('USDT', '/USDT'),
+            timeframe='1h',
+            limit=200
+        )
+        
+        # Convert to DataFrame
+        import pandas as pd
+        df = pd.DataFrame(
+            ohlcv_data,
+            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+        )
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        
+        # Fetch order book (optional)
+        order_book = client.fetch_order_book(symbol.replace('USDT', '/USDT'))
+        
+        # Run Advanced AI Analysis
+        analysis = advanced_ai_engine.analyze(symbol, df, order_book)
+        
+        return analysis
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
