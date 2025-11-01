@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { 
-  TrendingUp, TrendingDown, Activity, DollarSign, Percent, 
-  Clock, CheckCircle, XCircle, Target, Moon, Sun, Bell 
+  TrendingUp, TrendingDown, Activity,
+  Clock, CheckCircle, XCircle, Target, Moon, Sun
 } from 'lucide-react'
 import apiClient, { PerformanceData, RecentTrade } from '../lib/api'
 import { useToast } from '../hooks/useToast'

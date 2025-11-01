@@ -1,36 +1,9 @@
 import { useState } from 'react'
 import { Play, Download, TrendingUp, TrendingDown, Activity, DollarSign } from 'lucide-react'
-import apiClient from '../lib/api'
+import apiClient, { BacktestConfig, BacktestResult } from '../lib/api'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import '../styles/backtest.css'
 
-interface BacktestConfig {
-  symbol: string
-  timeframe: string
-  days: number
-  initial_capital: number
-  position_size_percent: number
-}
-
-interface BacktestMetrics {
-  total_return_percent: number
-  max_drawdown_percent: number
-  sharpe_ratio: number
-  sortino_ratio: number
-  win_rate_percent: number
-  profit_factor: number
-  total_trades: number
-  completed_rounds: number
-  final_equity: number
-}
-
-interface BacktestResult {
-  success: boolean
-  metrics: BacktestMetrics
-  equity_curve: Array<{ timestamp: string; equity: number }>
-  trades: Array<any>
-  config: any
-}
 
 export default function Backtesting() {
   const [config, setConfig] = useState<BacktestConfig>({
@@ -49,18 +22,17 @@ export default function Backtesting() {
     try {
       setLoading(true)
       setError(null)
-      
-      const response = await apiClient.post('/backtest/run', config)
-      setResult(response.data)
-      
+
+      const resp = await apiClient.runBacktest(config)
+      setResult(resp.data)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to run backtest')
+      const message = err?.response?.data?.detail || err?.message || 'Failed to run backtest'
+      setError(message)
       console.error('Backtest error:', err)
     } finally {
       setLoading(false)
     }
   }
-
   const loadPreset = (preset: any) => {
     setConfig({
       symbol: preset.symbol,
@@ -167,7 +139,7 @@ export default function Backtesting() {
         </div>
 
         {/* Run Button */}
-        <button 
+        <button
           className="btn btn--primary btn--lg run-button"
           onClick={runBacktest}
           disabled={loading}
@@ -285,7 +257,7 @@ export default function Backtesting() {
               <div className="metric-content">
                 <div className="metric-label">Profit Factor</div>
                 <div className="metric-value">
-                  {result.metrics.profit_factor.toFixed(2)}
+                  {isFinite(result.metrics.profit_factor) ? result.metrics.profit_factor.toFixed(2) : '∞'}
                 </div>
                 <div className="metric-sub">
                   {result.metrics.total_trades} total trades

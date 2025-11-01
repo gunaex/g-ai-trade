@@ -80,32 +80,20 @@ export interface Portfolio {
   roi_percent: number
 }
 
-export interface Performance {
-  period: 'today' | 'week' | 'month' | 'year'
-  has_data: boolean
-  profit_loss: number
-  profit_loss_percent: number
-  total_trades: number
-  win_rate: number
-  best_trade: number
-  worst_trade: number
-  message?: string
-}
-
 export interface PerformanceData {
   period: 'today' | 'week' | 'month' | 'year'
   has_data: boolean
   profit_loss: number
   profit_loss_percent: number
   total_trades: number
-  completed_rounds: number  // จำนวนรอบเทรดที่สมบูรณ์ (BUY+SELL)
+  completed_rounds: number
   win_rate: number
   best_trade: number
   worst_trade: number
   total_invested: number
   start_date: string
   end_date: string
-  message?: string  // สำหรับกรณี has_data = false
+  message?: string
 }
 
 export interface RecentTrade {
@@ -118,7 +106,6 @@ export interface RecentTrade {
   timestamp: string
 }
 
-// AI Force Trading Bot Interface
 export interface AIForceStatus {
   is_running: boolean
   symbol: string
@@ -138,6 +125,73 @@ export interface AIForceConfig {
   amount: number
   max_profit: number
   max_loss: number
+}
+
+export interface BacktestConfig {
+  symbol: string
+  timeframe: string
+  days: number
+  initial_capital: number
+  position_size_percent: number
+}
+
+export interface BacktestResult {
+  success: boolean
+  metrics: {
+    total_return_percent: number
+    max_drawdown_percent: number
+    sharpe_ratio: number
+    sortino_ratio: number
+    win_rate_percent: number
+    profit_factor: number
+    total_trades: number
+    completed_rounds: number
+    final_equity: number
+  }
+  equity_curve: Array<{ timestamp: string; equity: number }>
+  trades: Array<any>
+  config: any
+}
+
+export interface AdvancedAnalysis {
+  action: 'BUY' | 'SELL' | 'HOLD' | 'HALT'
+  reason: string
+  confidence: number
+  current_price: number
+  stop_loss: number
+  take_profit: number
+  risk_reward_ratio: number
+  modules: {
+    regime: {
+      regime: string
+      confidence: number
+      allow_mean_reversion: boolean
+      adx: number
+      bb_width: number
+    }
+    sentiment: {
+      score: number
+      interpretation: string
+      should_trade: boolean
+      twitter: number
+      news: number
+    }
+    risk_levels: {
+      stop_loss_price: number
+      take_profit_price: number
+      stop_loss_pct: number
+      take_profit_pct: number
+      atr: number
+      volatility: number
+    }
+    reversal: {
+      is_bullish_reversal: boolean
+      is_bearish_reversal: boolean
+      confidence: number
+      patterns_detected: string[]
+      order_book_imbalance: number
+    }
+  }
 }
 
 // API Methods
@@ -181,7 +235,7 @@ export const apiClient = {
   getRecentTrades: (limit: number = 10) =>
     api.get<{ trades: RecentTrade[] }>(`/performance/recent-trades?limit=${limit}`),
 
-  // Account Balance (new)
+  // Account Balance
   getAccountBalance: () =>
     api.get<{ balances: Array<{ asset: string; free: string; locked: string }> }>('/account/balance'),
 
@@ -194,92 +248,21 @@ export const apiClient = {
 
   getAIForceStatus: () =>
     api.get<AIForceStatus>('/bot/ai-force/status'),
-  
+
   getAdvancedAnalysis: (symbol: string, currency: string = 'USD') =>
     api.get<AdvancedAnalysis>(`/advanced-analysis/${symbol}?currency=${currency}`),
 
-}
-
-// Advanced AI Analysis Interface
-export interface AdvancedAnalysis {
-  action: 'BUY' | 'SELL' | 'HOLD' | 'HALT'
-  reason: string
-  confidence: number
-  current_price: number
-  stop_loss: number
-  take_profit: number
-  risk_reward_ratio: number
-  modules: {
-    regime: {
-      regime: string
-      confidence: number
-      allow_mean_reversion: boolean
-      adx: number
-      bb_width: number
-    }
-    sentiment: {
-      score: number
-      interpretation: string
-      should_trade: boolean
-      twitter: number
-      news: number
-    }
-    risk_levels: {
-      stop_loss_price: number
-      take_profit_price: number
-      stop_loss_pct: number
-      take_profit_pct: number
-      atr: number
-      volatility: number
-    }
-    reversal: {
-      is_bullish_reversal: boolean
-      is_bearish_reversal: boolean
-      confidence: number
-      patterns_detected: string[]
-      order_book_imbalance: number
-    }
-  }
-}
-
-export interface BacktestConfig {
-  symbol: string
-  timeframe: string
-  days: number
-  initial_capital: number
-  position_size_percent: number
-}
-
-export interface BacktestResult {
-  success: boolean
-  metrics: {
-    total_return_percent: number
-    max_drawdown_percent: number
-    sharpe_ratio: number
-    sortino_ratio: number
-    win_rate_percent: number
-    profit_factor: number
-    total_trades: number
-    completed_rounds: number
-    final_equity: number
-  }
-  equity_curve: Array<{ timestamp: string; equity: number }>
-  trades: Array<any>
-  config: any
-}
-
-// Update API Client with new methods
-Object.assign(apiClient, {
   // Backtesting
   runBacktest: (config: BacktestConfig) =>
     api.post<BacktestResult>('/backtest/run', config),
-  
+
   getBacktestPresets: () =>
     api.get('/backtest/presets'),
-  
-  // On-Chain
+
   analyzeOnChain: (symbol: string) =>
     api.get(`/onchain/analyze?symbol=${symbol}`),
-})
+}
+
+export type ApiClient = typeof apiClient
 
 export default apiClient
