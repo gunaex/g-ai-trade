@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Wallet, Power, Settings, DollarSign } from 'lucide-react'
 import apiClient, { AIDecision, MarketData, AIForceStatus, AIForceConfig } from '../lib/api'
 import Chart from '../components/Chart'
+import AdvancedAnalysis from '../components/AdvancedAnalysis'
 
 // Exchange rate API
 const getUSDToTHBRate = async (): Promise<number> => {
@@ -877,6 +878,8 @@ export default function Trade() {
           The bot will trade automatically based on AI signals and calculate Binance's 0.2% fee per round
         </p>
       </div>
+       {/* Advanced AI Analysis */}
+      <AdvancedAnalysis symbol={symbol} currency={currency} />
 
       {/* Chart */}
       {marketData && marketData.ohlcv && marketData.ohlcv.length > 0 && (
