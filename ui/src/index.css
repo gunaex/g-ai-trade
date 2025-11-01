@@ -8,11 +8,51 @@
   --color-text-secondary: #94a3b8;
   --color-primary: #10b981;
   --color-secondary: #3b82f6;
+  --color-secondary-hover: #2563eb;
   --color-success: #22c55e;
   --color-error: #ef4444;
   --color-warning: #f59e0b;
+  --color-info: #3b82f6;
   --radius: 12px;
+  --radius-base: 12px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
   --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.2);
+  --space-8: 0.5rem;
+  --space-10: 0.625rem;
+  --space-12: 0.75rem;
+  --space-16: 1rem;
+  --space-20: 1.25rem;
+  --space-24: 1.5rem;
+  --space-32: 2rem;
+  --font-family-mono: 'Courier New', Courier, monospace;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --duration-fast: 0.15s;
+  --duration-normal: 0.3s;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --color-background: rgba(0, 0, 0, 0.2);
+  --color-card-border: var(--color-border);
+  --color-card-border-inner: rgba(255, 255, 255, 0.1);
+  --color-btn-primary-text: white;
+  
+  /* RGB values for rgba() usage */
+  --color-primary-rgb: 16, 185, 129;
+  --color-secondary-rgb: 59, 130, 246;
+  --color-success-rgb: 34, 197, 94;
+  --color-error-rgb: 239, 68, 68;
+  --color-warning-rgb: 245, 158, 11;
+  --color-info-rgb: 59, 130, 246;
 }
 
 * {
@@ -1406,3 +1446,242 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================================
+   Performance Summary Component Styles
+   ============================================================================ */
+
+/* Performance Card */
+.performance-card {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(59, 130, 246, 0.05));
+  border: 2px solid var(--color-primary);
+}
+
+.performance-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.performance-details {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.detail-label {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+.detail-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-family: var(--font-family-mono);
+}
+
+/* Skeleton Loader */
+.skeleton-header {
+  margin-bottom: 1.5rem;
+}
+
+.skeleton-title {
+  width: 200px;
+  height: 24px;
+  background: linear-gradient(
+    90deg,
+    var(--color-secondary) 25%,
+    var(--color-secondary-hover) 50%,
+    var(--color-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-base);
+}
+
+.skeleton-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.skeleton-stat {
+  height: 60px;
+  border-radius: var(--radius-base);
+  background: linear-gradient(
+    90deg,
+    var(--color-secondary) 25%,
+    var(--color-secondary-hover) 50%,
+    var(--color-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton-label {
+  width: 100px;
+  height: 16px;
+  background: linear-gradient(
+    90deg,
+    var(--color-secondary) 25%,
+    var(--color-secondary-hover) 50%,
+    var(--color-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-base);
+  margin-bottom: 0.75rem;
+}
+
+.skeleton-value {
+  width: 150px;
+  height: 32px;
+  background: linear-gradient(
+    90deg,
+    var(--color-secondary) 25%,
+    var(--color-secondary-hover) 50%,
+    var(--color-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-base);
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* No Data State */
+.no-data-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+.no-data-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.no-data-state h4 {
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+  color: var(--color-text);
+}
+
+.no-data-state p {
+  font-size: 0.95rem;
+  color: var(--color-text-secondary);
+}
+
+/* Error State */
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+  text-align: center;
+  color: var(--color-error);
+  gap: 1rem;
+}
+
+.error-state p {
+  font-size: 1rem;
+  color: var(--color-error);
+}
+
+/* Button Small */
+.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+/* Responsive for Performance */
+
+/* Desktop: 4 columns แนวนอน */
+@media (min-width: 1024px) {
+  .performance-stats {
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-16);
+  }
+  
+  .stat-item,
+  .performance-stats .stat-card {
+    padding: var(--space-16);
+  }
+}
+
+/* Tablet: 2 columns */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .performance-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Mobile: 1 column (ตามเดิม) */
+@media (max-width: 767px) {
+  .performance-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  .performance-details {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================================
+   Toast Notification Container Styles
+   ============================================================================ */
+
+/* Option 1: Top Center (Default) */
+.toast-container {
+  position: fixed;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  pointer-events: none;
+  top: var(--space-24);
+  left: 50%;
+  transform: translateX(-50%);
+  right: auto;
+  bottom: auto;
+}
+
+/* Option 2: Bottom Right (ไม่ทับ dark mode toggle) */
+/* Uncomment to use bottom right positioning instead of top center */
+/*
+.toast-container {
+  top: auto;
+  bottom: 80px;
+  right: var(--space-24);
+  left: auto;
+  transform: none;
+}
+*/

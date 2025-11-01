@@ -80,6 +80,44 @@ export interface Portfolio {
   roi_percent: number
 }
 
+export interface Performance {
+  period: 'today' | 'week' | 'month' | 'year'
+  has_data: boolean
+  profit_loss: number
+  profit_loss_percent: number
+  total_trades: number
+  win_rate: number
+  best_trade: number
+  worst_trade: number
+  message?: string
+}
+
+export interface PerformanceData {
+  period: 'today' | 'week' | 'month' | 'year'
+  has_data: boolean
+  profit_loss: number
+  profit_loss_percent: number
+  total_trades: number
+  completed_rounds: number  // จำนวนรอบเทรดที่สมบูรณ์ (BUY+SELL)
+  win_rate: number
+  best_trade: number
+  worst_trade: number
+  total_invested: number
+  start_date: string
+  end_date: string
+  message?: string  // สำหรับกรณี has_data = false
+}
+
+export interface RecentTrade {
+  id: number
+  symbol: string
+  side: 'BUY' | 'SELL'
+  amount: number
+  price: number
+  status: string
+  timestamp: string
+}
+
 // AI Force Trading Bot Interface
 export interface AIForceStatus {
   is_running: boolean
@@ -134,6 +172,14 @@ export const apiClient = {
   // Portfolio
   getPortfolio: () =>
     api.get<Portfolio>('/portfolio'),
+
+  // Performance
+  getPerformance: (period: 'today' | 'week' | 'month' | 'year') =>
+    api.get<PerformanceData>(`/performance/${period}`),
+
+  // Recent Trades
+  getRecentTrades: (limit: number = 10) =>
+    api.get<{ trades: RecentTrade[] }>(`/performance/recent-trades?limit=${limit}`),
 
   // Account Balance (new)
   getAccountBalance: () =>
