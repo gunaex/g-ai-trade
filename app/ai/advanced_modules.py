@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 import logging
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
-import talib
+# Import TA-Lib
+import ta  # Using ta package instead of talib for now
 import requests
 from textblob import TextBlob
 
@@ -35,26 +36,29 @@ class MarketRegimeFilter:
         df = ohlcv.copy()
         
         # ADX (Average Directional Index) - Trend Strength
-        df['adx'] = talib.ADX(df['high'], df['low'], df['close'], timeperiod=14)
+        df['adx'] = ta.trend.adx(df['high'], df['low'], df['close'], window=14)
         
         # Bollinger Bands Width - Volatility
-        upper, middle, lower = talib.BBANDS(df['close'], timeperiod=20)
+        indicator_bb = ta.volatility.BollingerBands(df['close'], window=20)
+        upper = indicator_bb.bollinger_hband()
+        middle = indicator_bb.bollinger_mavg()
+        lower = indicator_bb.bollinger_lband()
         df['bb_width'] = (upper - lower) / middle
         
         # Moving Averages
-        df['sma_20'] = talib.SMA(df['close'], timeperiod=20)
-        df['sma_50'] = talib.SMA(df['close'], timeperiod=50)
+        df['sma_20'] = ta.trend.sma_indicator(df['close'], window=20)
+        df['sma_50'] = ta.trend.sma_indicator(df['close'], window=50)
         df['ma_ratio'] = df['sma_20'] / df['sma_50']  # Trend direction
         
         # RSI (Relative Strength Index)
-        df['rsi'] = talib.RSI(df['close'], timeperiod=14)
+        df['rsi'] = ta.momentum.rsi(df['close'], window=14)
         
         # Volume Trend
-        df['volume_sma'] = talib.SMA(df['volume'], timeperiod=20)
+        df['volume_sma'] = ta.trend.sma_indicator(df['volume'], window=20)
         df['volume_ratio'] = df['volume'] / df['volume_sma']
         
         # Price Rate of Change
-        df['roc'] = talib.ROC(df['close'], timeperiod=10)
+        df['roc'] = ta.momentum.roc(df['close'], window=10)
         
         return df[['adx', 'bb_width', 'ma_ratio', 'rsi', 'volume_ratio', 'roc']].dropna()
     
@@ -261,7 +265,7 @@ class DynamicRiskManager:
         """
         Calculate Average True Range (ATR)
         """
-        atr = talib.ATR(ohlcv['high'], ohlcv['low'], ohlcv['close'], timeperiod=period)
+        atr = ta.volatility.average_true_range(ohlcv['high'], ohlcv['low'], ohlcv['close'], window=period)
         return atr.iloc[-1]
     
     def calculate_volatility(self, ohlcv: pd.DataFrame) -> float:
@@ -346,15 +350,39 @@ class MicroPatternRecognizer:
         """
         patterns = {}
         
-        # Bullish patterns
-        patterns['hammer'] = talib.CDLHAMMER(ohlcv['open'], ohlcv['high'], ohlcv['low'], ohlcv['close']).iloc[-1]
-        patterns['engulfing_bull'] = talib.CDLENGULFING(ohlcv['open'], ohlcv['high'], ohlcv['low'], ohlcv['close']).iloc[-1]
-        patterns['morning_star'] = talib.CDLMORNINGSTAR(ohlcv['open'], ohlcv['high'], ohlcv['low'], ohlcv['close']).iloc[-1]
+        # Note: ta library doesn't have direct candlestick pattern functions
+        # Using simplified pattern detection
+        hammer = ((ohlcv['close'] - ohlcv['low']) > 3 * (ohlcv['open'] - ohlcv['close'])) & \
+                ((ohlcv['high'] - ohlcv['close']) < (ohlcv['open'] - ohlcv['low']))
+        patterns['hammer'] = 100 if hammer.iloc[-1] else 0
+        
+        engulfing = (ohlcv['open'].shift(1) > ohlcv['close'].shift(1)) & \
+                   (ohlcv['close'] > ohlcv['open']) & \
+                   (ohlcv['open'] < ohlcv['close'].shift(1)) & \
+                   (ohlcv['close'] > ohlcv['open'].shift(1))
+        patterns['engulfing_bull'] = 100 if engulfing.iloc[-1] else 0
+        
+        # Simplified morning star and evening star patterns
+        morning_star = (ohlcv['close'].shift(2) > ohlcv['open'].shift(2)) & \
+                      (ohlcv['open'].shift(1) < ohlcv['close'].shift(2)) & \
+                      (ohlcv['close'] > ohlcv['open'])
+        patterns['morning_star'] = 100 if morning_star.iloc[-1] else 0
         
         # Bearish patterns
-        patterns['shooting_star'] = talib.CDLSHOOTINGSTAR(ohlcv['open'], ohlcv['high'], ohlcv['low'], ohlcv['close']).iloc[-1]
-        patterns['engulfing_bear'] = talib.CDLENGULFING(ohlcv['open'], ohlcv['high'], ohlcv['low'], ohlcv['close']).iloc[-1]
-        patterns['evening_star'] = talib.CDLEVENINGSTAR(ohlcv['open'], ohlcv['high'], ohlcv['low'], ohlcv['close']).iloc[-1]
+        shooting_star = ((ohlcv['high'] - ohlcv['close']) > 3 * (ohlcv['close'] - ohlcv['open'])) & \
+                       ((ohlcv['close'] - ohlcv['low']) < (ohlcv['high'] - ohlcv['close']))
+        patterns['shooting_star'] = -100 if shooting_star.iloc[-1] else 0
+        
+        engulfing_bear = (ohlcv['close'].shift(1) > ohlcv['open'].shift(1)) & \
+                        (ohlcv['open'] > ohlcv['close']) & \
+                        (ohlcv['close'] < ohlcv['open'].shift(1)) & \
+                        (ohlcv['open'] > ohlcv['close'].shift(1))
+        patterns['engulfing_bear'] = -100 if engulfing_bear.iloc[-1] else 0
+        
+        evening_star = (ohlcv['close'].shift(2) < ohlcv['open'].shift(2)) & \
+                      (ohlcv['open'].shift(1) > ohlcv['close'].shift(2)) & \
+                      (ohlcv['close'] < ohlcv['open'])
+        patterns['evening_star'] = -100 if evening_star.iloc[-1] else 0
         
         return patterns
     
@@ -444,77 +472,120 @@ class AdvancedAITradingEngine:
         self.risk_manager = DynamicRiskManager()
         self.pattern_recognizer = MicroPatternRecognizer()
         
-    def analyze(self, symbol: str, ohlcv: pd.DataFrame, order_book: Dict = None) -> Dict[str, any]:
+    def analyze(self, symbol: str, ohlcv: pd.DataFrame, order_book: Optional[dict] = None) -> Dict:
         """
-        Full AI analysis combining all 4 modules
-        
-        Returns comprehensive trading decision with reasoning
+        Main Analysis Pipeline
         """
         logger.info(f"🤖 Starting Advanced AI Analysis for {symbol}")
         
-        # Module 1: Market Regime
-        regime = self.regime_filter.detect_regime(ohlcv)
-        
-        # Module 2: Sentiment
-        sentiment = self.sentiment_analyzer.get_combined_sentiment(symbol)
-        
-        # Module 3: Dynamic Risk Levels
-        current_price = ohlcv['close'].iloc[-1]
-        risk_levels = self.risk_manager.get_dynamic_levels(ohlcv, current_price)
-        
-        # Module 4: Micro-Pattern Recognition
-        reversal = self.pattern_recognizer.get_reversal_signal(ohlcv, order_book)
-        
-        # === DECISION LOGIC ===
-        
-        # Check if Mean Reversion is allowed (only in SIDEWAYS market)
-        if not regime['allow_mean_reversion']:
-            action = 'HALT'
-            reason = f"Market in {regime['regime']} - Mean Reversion disabled"
-            confidence = 0.0
-        
-        # Check sentiment filter
-        elif not sentiment['should_trade']:
-            action = 'HALT'
-            reason = f"Negative sentiment: {sentiment['interpretation']}"
-            confidence = 0.0
-        
-        # BUY signal: Bullish reversal + Positive sentiment
-        elif reversal['is_bullish_reversal'] and sentiment['score'] > 0:
-            action = 'BUY'
-            reason = f"Bullish reversal in SIDEWAYS market + Positive sentiment"
-            confidence = (reversal['confidence'] + abs(sentiment['score'])) / 2
-        
-        # SELL signal: Bearish reversal or negative sentiment
-        elif reversal['is_bearish_reversal'] or sentiment['score'] < -0.2:
-            action = 'SELL'
-            reason = f"Bearish reversal or negative sentiment detected"
-            confidence = (reversal['confidence'] + abs(sentiment['score'])) / 2
-        
-        # HOLD: No clear signal
-        else:
-            action = 'HOLD'
-            reason = "No clear reversal pattern detected"
-            confidence = 0.5
-        
-        # Compile full result
-        result = {
-            'action': action,
-            'reason': reason,
-            'confidence': confidence,
-            'current_price': current_price,
-            'stop_loss': risk_levels['stop_loss_price'],
-            'take_profit': risk_levels['take_profit_price'],
-            'risk_reward_ratio': risk_levels['risk_reward_ratio'],
-            'modules': {
+        try:
+            # 1. Market Regime Detection
+            regime = self.regime_filter.detect_regime(ohlcv)['regime']
+            logger.info(f"📊 Market Regime: {regime}")
+            
+            # ✅ แก้ไข: อนุญาตให้เทรดใน TRENDING market
+            if regime == 'SIDEWAYS':
+                return {
+                    'action': 'HALT',
+                    'confidence': 0.0,
+                    'reason': f'Market in {regime} - Not tradeable',
+                    'regime': regime
+                }
+            
+            # 2. Sentiment Analysis
+            sentiment_score = self.sentiment_analyzer.get_combined_sentiment(symbol)
+            twitter_sentiment = sentiment_score.get('score', 0)
+            news_sentiment = sentiment_score.get('news', 0)
+            combined_sentiment = (twitter_sentiment + news_sentiment) / 2
+            
+            logger.info(f"🐦 Twitter Sentiment for {symbol}: {twitter_sentiment:.2f}")
+            logger.info(f"📰 News Sentiment for {symbol}: {news_sentiment:.2f}")
+            
+            sentiment_label = 'BULLISH' if combined_sentiment > 0.1 else 'BEARISH' if combined_sentiment < -0.1 else 'NEUTRAL'
+            logger.info(f"💬 Combined Sentiment: {sentiment_label} ({combined_sentiment:.2f})")
+            
+            # ✅ แก้ไข: ลด threshold ของ sentiment
+            if combined_sentiment < -0.3:  # เดิม -0.2, ปรับเป็น -0.3
+                return {
+                    'action': 'HOLD',
+                    'confidence': 0.5,
+                    'reason': f'Sentiment too negative ({combined_sentiment:.2f})',
+                    'regime': regime,
+                    'sentiment': combined_sentiment
+                }
+            
+            # 3. Pattern Recognition
+            reversal = self.pattern_recognizer.get_reversal_signal(ohlcv, order_book)
+            patterns = reversal.get('patterns_detected', [])
+            
+            if not patterns:
+                logger.info("❌ No patterns detected")
+                # ✅ แก้ไข: ถ้าไม่มี pattern แต่ trend + sentiment ดี ก็ให้เทรดได้
+                if regime == 'TRENDING_UP' and combined_sentiment >= 0:
+                    logger.info("✅ No pattern but TRENDING_UP + positive sentiment -> BUY")
+                    # Continue to risk management
+                    patterns = [{'type': 'trend_following', 'strength': 0.6}]
+                elif regime == 'TRENDING_DOWN' and combined_sentiment <= 0:
+                    logger.info("✅ No pattern but TRENDING_DOWN + negative sentiment -> SELL")
+                    patterns = [{'type': 'trend_following', 'strength': 0.6}]
+                else:
+                    return {
+                        'action': 'HOLD',
+                        'confidence': 0.4,
+                        'reason': 'No clear patterns detected',
+                        'regime': regime,
+                        'sentiment': combined_sentiment
+                    }
+            
+            logger.info(f"🔍 Patterns Detected: {len(patterns)} patterns")
+            
+            # 4. Dynamic Risk Management
+            current_price = ohlcv['close'].iloc[-1]
+            risk_levels = self.risk_manager.get_dynamic_levels(ohlcv, current_price)
+            
+            stop_loss_pct = risk_levels['stop_loss_pct']
+            take_profit_pct = risk_levels['take_profit_pct']
+            risk_reward = risk_levels['risk_reward_ratio']
+            
+            logger.info(f"🎯 Dynamic Levels: SL={stop_loss_pct:.2f}%, TP={take_profit_pct:.2f}%, R:R={risk_reward:.2f}")
+            
+            # ✅ Final Decision Logic
+            # ถ้า TRENDING_UP + sentiment ไม่ติดลบมาก + มี pattern
+            if regime == 'TRENDING_UP':
+                action = 'BUY'
+                confidence = 0.7 + (combined_sentiment * 0.2)  # 0.7-0.9
+                reason = f"Trend: UP | Sentiment: {sentiment_label} | Patterns: {len(patterns)}"
+            
+            elif regime == 'TRENDING_DOWN':
+                action = 'SELL'
+                confidence = 0.7 + (abs(combined_sentiment) * 0.2)
+                reason = f"Trend: DOWN | Sentiment: {sentiment_label} | Patterns: {len(patterns)}"
+            
+            else:
+                action = 'HOLD'
+                confidence = 0.5
+                reason = f"Market regime {regime} - waiting for clear signal"
+            
+            logger.info(f"✅ Advanced AI Decision: {action} (Confidence: {confidence*100:.2f}%)")
+            logger.info(f"   Reason: {reason}")
+            
+            return {
+                'action': action,
+                'confidence': confidence,
+                'reason': reason,
                 'regime': regime,
-                'sentiment': sentiment,
-                'risk_levels': risk_levels,
-                'reversal': reversal
+                'sentiment': combined_sentiment,
+                'patterns': patterns,
+                'stop_loss_percent': stop_loss_pct,
+                'take_profit_percent': take_profit_pct,
+                'risk_reward_ratio': risk_reward
             }
-        }
-        
-        logger.info(f"✅ Advanced AI Decision: {action} (Confidence: {confidence:.2%})")
-        logger.info(f"   Reason: {reason}")
-        
-        return result
+            
+        except Exception as e:
+            logger.error(f"Advanced AI Analysis Error: {e}")
+            return {
+                'action': 'HALT',
+                'confidence': 0.0,
+                'reason': f'Error: {str(e)}',
+                'regime': 'UNKNOWN'
+            }

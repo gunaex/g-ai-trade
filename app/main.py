@@ -5,8 +5,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List, Literal
 import os
+import logging
 from datetime import datetime, timedelta
 from sqlalchemy import and_, func
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 from app.db import engine, Base, get_db
 from app.ai.decision import AIDecisionEngine
@@ -14,6 +19,18 @@ from app.models import Trade, GridBot, DCABot
 from sqlalchemy.orm import Session
 from app.trading_bot import ai_trading_bot
 from app.ai.advanced_modules import AdvancedAITradingEngine
+
+# Add new imports
+from app.backtesting.backtesting_engine import (
+    BacktestingEngine, 
+    load_historical_data
+)
+from app.backtesting.onchain_filter import (
+    OnChainFilter,
+    MockOnChainProvider,
+    IntegratedDecisionEngine
+)
+from typing import Literal, Dict
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -496,6 +513,180 @@ async def get_recent_trades(
         }
         
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Pydantic Models สำหรับ Backtesting
+class BacktestRequest(BaseModel):
+    symbol: str
+    timeframe: str = '5m'  # 1m, 5m, 15m, 1h, 4h, 1d
+    days: int = 30
+    initial_capital: float = 10000
+    position_size_percent: float = 0.95
+
+class BacktestResult(BaseModel):
+    success: bool
+    metrics: Optional[Dict] = None
+    equity_curve: Optional[List[Dict]] = None
+    trades: Optional[List[Dict]] = None
+    error: Optional[str] = None
+
+# Backtesting Endpoints
+@app.post("/api/backtest/run")
+async def run_backtest(request: BacktestRequest):
+    """
+    รัน Backtesting สำหรับกลยุทธ์ AI
+    
+    Example:
+    POST /api/backtest/run
+    {
+        "symbol": "BTC/USDT",
+        "timeframe": "5m",
+        "days": 30,
+        "initial_capital": 10000
+    }
+    """
+    try:
+        # 1. โหลดข้อมูลย้อนหลัง
+        logger.info(f"Loading historical data for {request.symbol}")
+        data = await load_historical_data(
+            symbol=request.symbol,
+            timeframe=request.timeframe,
+            days=request.days
+        )
+        
+        if data.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to load historical data"
+            )
+        
+        # 2. สร้าง AI Engine
+        from app.ai.advanced_modules import AdvancedAITradingEngine
+        ai_engine = AdvancedAITradingEngine()
+        
+        # 3. สร้าง Backtesting Engine
+        backtest_engine = BacktestingEngine(
+            symbol=request.symbol,
+            data=data,
+            ai_engine=ai_engine,
+            initial_capital=request.initial_capital,
+            position_size_percent=request.position_size_percent
+        )
+        
+        # 4. รัน Backtest
+        logger.info(f"Running backtest for {request.symbol}")
+        metrics = await backtest_engine.run()
+        
+        # 5. Generate Tear Sheet (ใน console)
+        backtest_engine.generate_tear_sheet()
+        
+        # 6. ดึงข้อมูลเพิ่มเติม
+        equity_curve = backtest_engine.portfolio.get_equity_curve_df()
+        equity_curve_json = equity_curve.to_dict('records')
+        
+        trades = backtest_engine.portfolio.trades
+        
+        return {
+            "success": True,
+            "metrics": metrics,
+            "equity_curve": equity_curve_json,
+            "trades": trades[-50:],  # ส่ง 50 trades ล่าสุด
+            "config": {
+                "symbol": request.symbol,
+                "timeframe": request.timeframe,
+                "days": request.days,
+                "initial_capital": request.initial_capital,
+                "data_points": len(data)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Backtest error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/backtest/status/{symbol}")
+async def get_backtest_status(symbol: str):
+    """
+    เช็คสถานะ Backtest (สำหรับ long-running tests)
+    """
+    # TODO: Implement task queue (Celery/Redis) for long backtests
+    return {
+        "status": "not_implemented",
+        "message": "Use /api/backtest/run for synchronous backtesting"
+    }
+
+@app.get("/api/backtest/presets")
+async def get_backtest_presets():
+    """
+    ดึง Preset configurations สำหรับ Backtesting
+    """
+    return {
+        "presets": [
+            {
+                "name": "Quick Test (7 days)",
+                "symbol": "BTC/USDT",
+                "timeframe": "5m",
+                "days": 7,
+                "initial_capital": 10000
+            },
+            {
+                "name": "Short Term (30 days)",
+                "symbol": "BTC/USDT",
+                "timeframe": "15m",
+                "days": 30,
+                "initial_capital": 10000
+            },
+            {
+                "name": "Medium Term (90 days)",
+                "symbol": "BTC/USDT",
+                "timeframe": "1h",
+                "days": 90,
+                "initial_capital": 10000
+            },
+            {
+                "name": "Long Term (180 days)",
+                "symbol": "BTC/USDT",
+                "timeframe": "4h",
+                "days": 180,
+                "initial_capital": 10000
+            }
+        ],
+        "supported_symbols": ["BTC/USDT", "ETH/USDT", "BNB/USDT"],
+        "supported_timeframes": ["1m", "5m", "15m", "1h", "4h", "1d"]
+    }
+
+@app.post("/api/onchain/analyze")
+async def analyze_onchain(symbol: str):
+    """
+    วิเคราะห์ On-Chain Data สำหรับ symbol
+    
+    Example:
+    POST /api/onchain/analyze?symbol=BTC/USDT
+    """
+    try:
+        # สร้าง OnChain Filter (ใช้ Mock Provider)
+        onchain_filter = OnChainFilter(provider=MockOnChainProvider())
+        
+        # วิเคราะห์
+        analysis = await onchain_filter.analyze(symbol)
+        
+        return {
+            "symbol": symbol,
+            "status": analysis.status,
+            "confidence": analysis.confidence,
+            "veto_buy": analysis.veto_buy,
+            "reasoning": analysis.reasoning,
+            "metrics": {
+                "exchange_netflow": analysis.metrics.exchange_netflow,
+                "whale_transactions": analysis.metrics.whale_transactions,
+                "whale_volume": analysis.metrics.whale_volume,
+                "stablecoin_supply_ratio": analysis.metrics.stablecoin_supply_ratio,
+                "timestamp": analysis.metrics.timestamp.isoformat()
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"OnChain analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Mount static files for production (only if built)

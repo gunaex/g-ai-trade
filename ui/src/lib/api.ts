@@ -242,7 +242,44 @@ export interface AdvancedAnalysis {
   }
 }
 
+export interface BacktestConfig {
+  symbol: string
+  timeframe: string
+  days: number
+  initial_capital: number
+  position_size_percent: number
+}
 
+export interface BacktestResult {
+  success: boolean
+  metrics: {
+    total_return_percent: number
+    max_drawdown_percent: number
+    sharpe_ratio: number
+    sortino_ratio: number
+    win_rate_percent: number
+    profit_factor: number
+    total_trades: number
+    completed_rounds: number
+    final_equity: number
+  }
+  equity_curve: Array<{ timestamp: string; equity: number }>
+  trades: Array<any>
+  config: any
+}
 
+// Update API Client with new methods
+Object.assign(apiClient, {
+  // Backtesting
+  runBacktest: (config: BacktestConfig) =>
+    api.post<BacktestResult>('/backtest/run', config),
+  
+  getBacktestPresets: () =>
+    api.get('/backtest/presets'),
+  
+  // On-Chain
+  analyzeOnChain: (symbol: string) =>
+    api.get(`/onchain/analyze?symbol=${symbol}`),
+})
 
 export default apiClient
