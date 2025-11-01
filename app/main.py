@@ -1,11 +1,12 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Literal
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+from sqlalchemy import and_, func
 
 from app.db import engine, Base, get_db
 from app.ai.decision import AIDecisionEngine
@@ -338,6 +339,162 @@ async def get_portfolio(db: Session = Depends(get_db)):
             "profit_loss": round(total_returns - total_invested, 2),
             "roi_percent": round(((total_returns - total_invested) / total_invested * 100) if total_invested > 0 else 0, 2)
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/performance/{period}")
+async def get_performance(
+    period: Literal["today", "week", "month", "year"],
+    db: Session = Depends(get_db)
+):
+    """
+    Get REAL trading performance from database
+    Supports: today, week, month, year
+    """
+    try:
+        # Calculate date range
+        now = datetime.utcnow()
+        
+        if period == "today":
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == "week":
+            start_date = now - timedelta(days=7)
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+        else:  # year
+            start_date = now - timedelta(days=365)
+        
+        # Query REAL completed trades from database
+        trades = db.query(Trade).filter(
+            and_(
+                Trade.timestamp >= start_date,
+                Trade.timestamp <= now,
+                Trade.status.in_(["filled", "completed"])  # Only successful trades
+            )
+        ).all()
+        
+        # Check if we have data
+        if not trades or len(trades) == 0:
+            return {
+                "period": period,
+                "has_data": False,
+                "profit_loss": 0,
+                "profit_loss_percent": 0,
+                "total_trades": 0,
+                "win_rate": 0,
+                "best_trade": 0,
+                "worst_trade": 0,
+                "message": "No trading data available for this period"
+            }
+        
+        # Calculate REAL metrics from trades
+        profit_losses = []
+        buy_trades = {}  # Track buy prices for calculating P/L
+        
+        for trade in trades:
+            if not trade.filled_price or not trade.amount:
+                continue
+                
+            trade_value = trade.amount * trade.filled_price
+            
+            if trade.side == "BUY":
+                # Store buy for later P/L calculation
+                if trade.symbol not in buy_trades:
+                    buy_trades[trade.symbol] = []
+                buy_trades[trade.symbol].append({
+                    'price': trade.filled_price,
+                    'amount': trade.amount,
+                    'value': trade_value
+                })
+            
+            elif trade.side == "SELL":
+                # Calculate P/L for sell
+                if trade.symbol in buy_trades and len(buy_trades[trade.symbol]) > 0:
+                    # Get average buy price (FIFO)
+                    buy_trade = buy_trades[trade.symbol][0]
+                    
+                    # P/L = (sell_price - buy_price) * amount
+                    pl = (trade.filled_price - buy_trade['price']) * min(trade.amount, buy_trade['amount'])
+                    profit_losses.append(pl)
+                    
+                    # Update or remove buy trade
+                    if trade.amount >= buy_trade['amount']:
+                        buy_trades[trade.symbol].pop(0)
+                    else:
+                        buy_trades[trade.symbol][0]['amount'] -= trade.amount
+        
+        # Calculate metrics
+        total_trades = len(trades)
+        total_profit_loss = sum(profit_losses) if profit_losses else 0
+        
+        # Win rate calculation
+        winning_trades = sum(1 for pl in profit_losses if pl > 0)
+        win_rate = (winning_trades / len(profit_losses) * 100) if profit_losses else 0
+        
+        # Best and worst trades
+        best_trade = max(profit_losses) if profit_losses else 0
+        worst_trade = min(profit_losses) if profit_losses else 0
+        
+        # Calculate percentage based on total invested
+        total_invested = sum(
+            t.amount * t.filled_price 
+            for t in trades 
+            if t.side == "BUY" and t.filled_price
+        )
+        
+        profit_loss_percent = (
+            (total_profit_loss / total_invested * 100) 
+            if total_invested > 0 
+            else 0
+        )
+        
+        return {
+            "period": period,
+            "has_data": True,
+            "profit_loss": round(total_profit_loss, 2),
+            "profit_loss_percent": round(profit_loss_percent, 2),
+            "total_trades": total_trades,
+            "completed_rounds": len(profit_losses),  # จำนวนรอบที่เทรดสำเร็จ (BUY+SELL)
+            "win_rate": round(win_rate, 1),
+            "best_trade": round(best_trade, 2),
+            "worst_trade": round(worst_trade, 2),
+            "total_invested": round(total_invested, 2),
+            "start_date": start_date.isoformat(),
+            "end_date": now.isoformat()
+        }
+        
+    except Exception as e:
+        print(f"Performance calculation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/performance/recent-trades")
+async def get_recent_trades(
+    db: Session = Depends(get_db),
+    limit: int = Query(10, ge=1, le=100)
+):
+    """
+    Get recent trades for monitoring page
+    """
+    try:
+        trades = db.query(Trade).order_by(
+            Trade.timestamp.desc()
+        ).limit(limit).all()
+        
+        return {
+            "trades": [
+                {
+                    "id": t.id,
+                    "symbol": t.symbol,
+                    "side": t.side,
+                    "amount": t.amount,
+                    "price": t.filled_price or t.price,
+                    "status": t.status,
+                    "timestamp": t.timestamp.isoformat()
+                }
+                for t in trades
+            ]
+        }
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
