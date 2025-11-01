@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { TrendingUp, Activity, Settings } from 'lucide-react'
+import { TrendingUp, Activity, Settings, BarChart3 } from 'lucide-react'
 
 export default function Navbar() {
   const location = useLocation()
@@ -10,26 +10,31 @@ export default function Navbar() {
 
   return (
     <nav className="navbar">
-      <div className="nav-container">
-        <div className="nav-brand">
-          <TrendingUp size={32} />
-          <h1>G-AI-TRADE</h1>
-        </div>
+      <div className="nav-brand">
+        <TrendingUp size={24} />
+        <span>G-AI-TRADE</span>
+      </div>
+      
+      <div className="nav-links">
+        <Link to="/" className={isActive('/')}>
+          <TrendingUp size={20} />
+          <span>Trade</span>
+        </Link>
         
-        <div className="nav-links">
-          <Link to="/" className={isActive('/')}>
-            <TrendingUp size={20} />
-            <span>Trade</span>
-          </Link>
-          <Link to="/monitoring" className={isActive('/monitoring')}>
-            <Activity size={20} />
-            <span>Monitor</span>
-          </Link>
-          <Link to="/settings" className={isActive('/settings')}>
-            <Settings size={20} />
-            <span>Settings</span>
-          </Link>
-        </div>
+        <Link to="/monitor" className={isActive('/monitor')}>
+          <Activity size={20} />
+          <span>Monitor</span>
+        </Link>
+        
+        <Link to="/backtest" className={isActive('/backtest')}>
+          <BarChart3 size={20} />
+          <span>Backtest</span>
+        </Link>
+        
+        <Link to="/settings" className={isActive('/settings')}>
+          <Settings size={20} />
+          <span>Settings</span>
+        </Link>
       </div>
     </nav>
   )
