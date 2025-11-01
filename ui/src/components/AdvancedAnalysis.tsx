@@ -50,7 +50,8 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
     }
   }
 
-  const getRegimeColor = (regime: string) => {
+  const getRegimeColor = (regime?: string) => {
+    if (!regime) return 'text-secondary'
     switch (regime) {
       case 'TRENDING_UP': return 'text-success'
       case 'TRENDING_DOWN': return 'text-error'
@@ -112,8 +113,8 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
           <span className={`decision-action ${getActionColor(analysis.action)}`}>
             {analysis.action}
           </span>
-          <span className="decision-confidence">
-            Confidence: {(analysis.confidence * 100).toFixed(0)}%
+              <span className="decision-confidence">
+            Confidence: {analysis.confidence ? (analysis.confidence * 100).toFixed(0) : 'N/A'}%
           </span>
         </div>
         <div className="decision-reason">
@@ -125,19 +126,25 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
       <div className="risk-levels-display">
         <div className="risk-level-item">
           <span className="label">Entry Price:</span>
-          <strong>${analysis.current_price.toFixed(2)}</strong>
+          <strong>${analysis.current_price?.toFixed(2) || 'N/A'}</strong>
         </div>
         <div className="risk-level-item text-error">
           <span className="label">Stop Loss:</span>
-          <strong>${analysis.stop_loss.toFixed(2)} ({analysis.modules.risk_levels.stop_loss_pct.toFixed(2)}%)</strong>
+          <strong>
+            ${analysis.stop_loss?.toFixed(2) || 'N/A'} 
+            ({analysis.modules?.risk_levels?.stop_loss_pct?.toFixed(2) || 'N/A'}%)
+          </strong>
         </div>
         <div className="risk-level-item text-success">
           <span className="label">Take Profit:</span>
-          <strong>${analysis.take_profit.toFixed(2)} ({analysis.modules.risk_levels.take_profit_pct.toFixed(2)}%)</strong>
+          <strong>
+            ${analysis.take_profit?.toFixed(2) || 'N/A'} 
+            ({analysis.modules?.risk_levels?.take_profit_pct?.toFixed(2) || 'N/A'}%)
+          </strong>
         </div>
         <div className="risk-level-item">
           <span className="label">Risk:Reward:</span>
-          <strong>1:{analysis.risk_reward_ratio.toFixed(2)}</strong>
+          <strong>1:{analysis.risk_reward_ratio?.toFixed(2) || 'N/A'}</strong>
         </div>
       </div>
 
@@ -152,26 +159,26 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
           <div className="module-content">
             <div className="regime-display">
               <span className="regime-label">Current State:</span>
-              <span className={`regime-value ${getRegimeColor(analysis.modules.regime.regime)}`}>
-                {analysis.modules.regime.regime.replace('_', ' ')}
+              <span className={`regime-value ${getRegimeColor(analysis.modules?.regime?.regime || '')}`}>
+                {analysis.modules?.regime?.regime?.replace('_', ' ') || 'Unknown'}
               </span>
             </div>
             <div className="module-metrics">
               <div className="metric-item">
                 <span>ADX:</span>
-                <strong>{analysis.modules.regime.adx.toFixed(1)}</strong>
+                <strong>{analysis.modules?.regime?.adx?.toFixed(1) || 'N/A'}</strong>
               </div>
               <div className="metric-item">
                 <span>BB Width:</span>
-                <strong>{analysis.modules.regime.bb_width.toFixed(3)}</strong>
+                <strong>{analysis.modules?.regime?.bb_width?.toFixed(3) || 'N/A'}</strong>
               </div>
               <div className="metric-item">
                 <span>Confidence:</span>
-                <strong>{(analysis.modules.regime.confidence * 100).toFixed(0)}%</strong>
+                <strong>{analysis.modules?.regime?.confidence ? (analysis.modules.regime.confidence * 100).toFixed(0) : 'N/A'}%</strong>
               </div>
             </div>
-            <div className={`regime-status ${analysis.modules.regime.allow_mean_reversion ? 'status-active' : 'status-inactive'}`}>
-              {analysis.modules.regime.allow_mean_reversion ? '✅ Mean Reversion Enabled' : '🛑 Mean Reversion Disabled'}
+            <div className={`regime-status ${analysis.modules?.regime?.allow_mean_reversion ? 'status-active' : 'status-inactive'}`}>
+              {analysis.modules?.regime?.allow_mean_reversion ? '✅ Mean Reversion Enabled' : '🛑 Mean Reversion Disabled'}
             </div>
           </div>
         </div>
@@ -185,38 +192,38 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
           <div className="module-content">
             <div className="sentiment-display">
               <span className="sentiment-label">Market Sentiment:</span>
-              <span className={`sentiment-value ${getSentimentColor(analysis.modules.sentiment.score)}`}>
-                {analysis.modules.sentiment.interpretation.replace('_', ' ')}
+              <span className={`sentiment-value ${getSentimentColor(analysis.modules?.sentiment?.score || 0)}`}>
+                {analysis.modules?.sentiment?.interpretation?.replace('_', ' ') || 'Unknown'}
               </span>
             </div>
             <div className="sentiment-score-bar">
               <div className="score-bar-track">
                 <div 
-                  className={`score-bar-fill ${analysis.modules.sentiment.score >= 0 ? 'positive' : 'negative'}`}
+                  className={`score-bar-fill ${(analysis.modules?.sentiment?.score || 0) >= 0 ? 'positive' : 'negative'}`}
                   style={{
-                    width: `${Math.abs(analysis.modules.sentiment.score) * 100}%`,
-                    marginLeft: analysis.modules.sentiment.score < 0 ? 'auto' : '0'
+                    width: `${Math.abs(analysis.modules?.sentiment?.score || 0) * 100}%`,
+                    marginLeft: (analysis.modules?.sentiment?.score || 0) < 0 ? 'auto' : '0'
                   }}
                 />
               </div>
-              <span className="score-value">{analysis.modules.sentiment.score.toFixed(2)}</span>
+              <span className="score-value">{(analysis.modules?.sentiment?.score || 0).toFixed(2)}</span>
             </div>
             <div className="module-metrics">
               <div className="metric-item">
                 <span>Twitter:</span>
-                <strong className={getSentimentColor(analysis.modules.sentiment.twitter)}>
-                  {analysis.modules.sentiment.twitter.toFixed(2)}
+                <strong className={getSentimentColor(analysis.modules?.sentiment?.twitter || 0)}>
+                  {analysis.modules?.sentiment?.twitter?.toFixed(2) || 'N/A'}
                 </strong>
               </div>
               <div className="metric-item">
                 <span>News:</span>
-                <strong className={getSentimentColor(analysis.modules.sentiment.news)}>
-                  {analysis.modules.sentiment.news.toFixed(2)}
+                <strong className={getSentimentColor(analysis.modules?.sentiment?.news || 0)}>
+                  {analysis.modules?.sentiment?.news?.toFixed(2) || 'N/A'}
                 </strong>
               </div>
             </div>
-            <div className={`sentiment-status ${analysis.modules.sentiment.should_trade ? 'status-active' : 'status-inactive'}`}>
-              {analysis.modules.sentiment.should_trade ? '✅ Safe to Trade' : '🛑 Avoid Trading'}
+            <div className={`sentiment-status ${analysis.modules?.sentiment?.should_trade ? 'status-active' : 'status-inactive'}`}>
+              {analysis.modules?.sentiment?.should_trade ? '✅ Safe to Trade' : '🛑 Avoid Trading'}
             </div>
           </div>
         </div>
@@ -231,19 +238,19 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
             <div className="module-metrics">
               <div className="metric-item">
                 <span>ATR:</span>
-                <strong>${analysis.modules.risk_levels.atr.toFixed(2)}</strong>
+                <strong>${analysis.modules?.risk_levels?.atr?.toFixed(2) || 'N/A'}</strong>
               </div>
               <div className="metric-item">
                 <span>Volatility:</span>
-                <strong>{(analysis.modules.risk_levels.volatility * 100).toFixed(2)}%</strong>
+                <strong>{analysis.modules?.risk_levels?.volatility ? (analysis.modules.risk_levels.volatility * 100).toFixed(2) : 'N/A'}%</strong>
               </div>
               <div className="metric-item">
                 <span>Stop Loss:</span>
-                <strong className="text-error">{analysis.modules.risk_levels.stop_loss_pct.toFixed(2)}%</strong>
+                <strong className="text-error">{analysis.modules?.risk_levels?.stop_loss_pct?.toFixed(2) || 'N/A'}%</strong>
               </div>
               <div className="metric-item">
                 <span>Take Profit:</span>
-                <strong className="text-success">{analysis.modules.risk_levels.take_profit_pct.toFixed(2)}%</strong>
+                <strong className="text-success">{analysis.modules?.risk_levels?.take_profit_pct?.toFixed(2) || 'N/A'}%</strong>
               </div>
             </div>
             <div className="risk-visualization">
@@ -270,41 +277,41 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
           </div>
           <div className="module-content">
             <div className="pattern-signals">
-              {analysis.modules.reversal.is_bullish_reversal && (
+              {analysis.modules?.reversal?.is_bullish_reversal && (
                 <div className="pattern-signal bullish">
                   <TrendingUp size={16} />
                   <span>Bullish Reversal</span>
                 </div>
               )}
-              {analysis.modules.reversal.is_bearish_reversal && (
+              {analysis.modules?.reversal?.is_bearish_reversal && (
                 <div className="pattern-signal bearish">
                   <TrendingDown size={16} />
                   <span>Bearish Reversal</span>
                 </div>
               )}
-              {!analysis.modules.reversal.is_bullish_reversal && !analysis.modules.reversal.is_bearish_reversal && (
+              {(!analysis.modules?.reversal?.is_bullish_reversal && !analysis.modules?.reversal?.is_bearish_reversal) && (
                 <div className="pattern-signal neutral">
                   <span>No Clear Pattern</span>
                 </div>
               )}
             </div>
-            <div className="module-metrics">
+              <div className="module-metrics">
               <div className="metric-item">
                 <span>Confidence:</span>
-                <strong>{(analysis.modules.reversal.confidence * 100).toFixed(0)}%</strong>
+                <strong>{analysis.modules?.reversal?.confidence ? (analysis.modules.reversal.confidence * 100).toFixed(0) : 'N/A'}%</strong>
               </div>
               <div className="metric-item">
                 <span>Order Book:</span>
-                <strong className={analysis.modules.reversal.order_book_imbalance >= 0 ? 'text-success' : 'text-error'}>
-                  {analysis.modules.reversal.order_book_imbalance.toFixed(2)}
+                <strong className={analysis.modules?.reversal?.order_book_imbalance >= 0 ? 'text-success' : 'text-error'}>
+                  {analysis.modules?.reversal?.order_book_imbalance?.toFixed(2) || 'N/A'}
                 </strong>
               </div>
             </div>
-            {analysis.modules.reversal.patterns_detected.length > 0 && (
+            {analysis.modules?.reversal?.patterns_detected?.length > 0 && (
               <div className="patterns-detected">
                 <span className="patterns-label">Patterns:</span>
                 <div className="patterns-list">
-                  {analysis.modules.reversal.patterns_detected.map((pattern, idx) => (
+                  {analysis.modules?.reversal?.patterns_detected?.map((pattern, idx) => (
                     <span key={idx} className="pattern-badge">
                       {pattern.replace('_', ' ')}
                     </span>
