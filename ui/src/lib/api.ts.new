@@ -1,0 +1,100 @@
+import axios from 'axios'
+
+const API_BASE = (import.meta as any).env?.PROD ? '/api' : 'http://localhost:8000/api'
+
+const api = axios.create({
+  baseURL: API_BASE,
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+
+export interface BacktestConfig {
+  symbol: string;
+  timeframe: string;
+  days: number;
+  initial_capital: number;
+  position_size_percent: number;
+}
+
+export interface BacktestResult {
+  success: boolean;
+  metrics: {
+    total_return_percent: number;
+    max_drawdown_percent: number;
+    sharpe_ratio: number;
+    sortino_ratio: number;
+    win_rate_percent: number;
+    profit_factor: number;
+    total_trades: number;
+    completed_rounds: number;
+    final_equity: number;
+  };
+  equity_curve: Array<{
+    timestamp: string;
+    equity: number;
+  }>;
+  trades: Array<any>;
+  config: BacktestConfig;
+}
+
+export interface AIDecision {
+  action: 'BUY' | 'SELL' | 'HOLD' | 'HALT';
+  principle: string;
+  predicted_pl_percent: number;
+  confidence: number;
+  timestamp: string;
+  symbol: string;
+}
+
+export interface TradeRequest {
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  amount: number;
+  price?: number;
+}
+
+export interface Performance {
+  period: 'today' | 'week' | 'month' | 'year';
+  has_data: boolean;
+  profit_loss: number;
+  profit_loss_percent: number;
+  total_trades: number;
+  win_rate: number;
+  best_trade: number;
+  worst_trade: number;
+  message?: string;
+}
+
+export interface ApiClient {
+  // Health Check
+  healthCheck: () => Promise<any>;
+  
+  // Backtesting
+  runBacktest: (config: BacktestConfig) => Promise<{ data: BacktestResult }>;
+  
+  // AI Decision
+  getDecision: (symbol: string, currency?: string) => Promise<{ data: AIDecision }>;
+  
+  // Trading
+  executeTrade: (trade: TradeRequest) => Promise<any>;
+}
+
+const apiClient: ApiClient = {
+  // Health Check
+  healthCheck: () => api.get('/health'),
+  
+  // Backtesting
+  runBacktest: (config: BacktestConfig) => api.post('/backtest/run', config),
+  
+  // AI Decision
+  getDecision: (symbol: string, currency: string = 'USD') =>
+    api.get<AIDecision>(`/decision/${symbol}?currency=${currency}`),
+  
+  // Trading
+  executeTrade: (trade: TradeRequest) =>
+    api.post('/trade', trade),
+}
+
+export default apiClient;
