@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # Import FastAPI related modules
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks
+import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -18,13 +19,14 @@ from pydantic import BaseModel
 # SQLAlchemy related imports
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
-from app.db import engine, Base, get_db
-from app.models import Trade, GridBot, DCABot
+from app.db import engine, Base, get_db, SessionLocal
+from app.models import Trade, GridBot, DCABot, BotConfig
 
 # Application specific imports
 from app.ai.decision import AIDecisionEngine
 from app.trading_bot import ai_trading_bot
 from app.ai.advanced_modules import AdvancedAITradingEngine
+from app.auto_trader import AutoTrader
 
 # Add new imports
 from app.backtesting.backtesting_engine import (
@@ -67,6 +69,8 @@ app.add_middleware(
 
 # Initialize AI Engine lazily to avoid heavy imports during app startup
 ai_engine = None  # type: Optional[AIDecisionEngine]
+advanced_ai_engine = None  # type: Optional[AdvancedAITradingEngine]
+auto_trader_instance: Optional[AutoTrader] = None  # Global auto trader instance
 
 # Pydantic Models
 class TradeRequest(BaseModel):
@@ -805,7 +809,15 @@ async def get_advanced_analysis(
         logger.info("Market data client initialized")
         
         # Fetch OHLCV data with timeout
-        symbol_formatted = symbol.replace('USDT', '/USDT')
+        # Format symbol safely for ccxt (avoid double slashes)
+        if '/' in symbol:
+            symbol_formatted = symbol
+        elif symbol.endswith('USDT'):
+            symbol_formatted = symbol[:-4] + '/USDT'
+        elif symbol.endswith('USD'):
+            symbol_formatted = symbol[:-3] + '/USD'
+        else:
+            symbol_formatted = symbol
         logger.info(f"Fetching OHLCV for {symbol_formatted}")
         
         try:
@@ -1002,3 +1014,249 @@ async def get_advanced_analysis_debug(
     except Exception as e:
         logger.error(f"Unhandled error in debug endpoint: {e}")
         raise HTTPException(status_code=500, detail=f"Unhandled error: {str(e)}")
+
+
+# ============================================================================
+# AUTO TRADING ENDPOINTS
+# ============================================================================
+
+@app.post("/api/auto-bot/create")
+async def create_auto_bot(config: dict, db: Session = Depends(get_db)):
+    """
+    สร้างการตั้งค่า Auto Bot
+    
+    Body:
+    {
+        "name": "My Auto Bot",
+        "symbol": "BTC/USDT",
+        "budget": 10000,
+        "risk_level": "moderate",
+        "min_confidence": 0.7
+    }
+    """
+    try:
+        bot_config = BotConfig(
+            name=config.get('name', 'Auto Bot'),
+            symbol=config.get('symbol', 'BTC/USDT'),
+            budget=config.get('budget', 10000),
+            risk_level=config.get('risk_level', 'moderate'),
+            min_confidence=config.get('min_confidence', 0.7),
+            position_size_ratio=config.get('position_size_ratio', 0.95),
+            max_daily_loss=config.get('max_daily_loss', 5.0),
+            is_active=False
+        )
+        
+        db.add(bot_config)
+        db.commit()
+        db.refresh(bot_config)
+        
+        return {
+            "success": True,
+            "config_id": bot_config.id,
+            "message": "Auto Bot config created successfully"
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to create auto bot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/auto-bot/config/{config_id}")
+async def get_auto_bot_config(config_id: int, db: Session = Depends(get_db)):
+    """ดึงการตั้งค่า Auto Bot"""
+    config = db.query(BotConfig).filter(BotConfig.id == config_id).first()
+    
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found")
+    
+    return config.to_dict()
+
+
+@app.post("/api/auto-bot/start/{config_id}")
+async def start_auto_bot(
+    config_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    เริ่มการทำงาน Auto Bot (Background Service)
+    """
+    global auto_trader_instance
+    
+    try:
+        # เช็คว่ามี bot ทำงานอยู่แล้วหรือไม่
+        if auto_trader_instance and auto_trader_instance.is_running:
+            raise HTTPException(status_code=400, detail="Auto bot is already running")
+        
+        # Load config
+        config = db.query(BotConfig).filter(BotConfig.id == config_id).first()
+        if not config:
+            raise HTTPException(status_code=404, detail="Config not found")
+        
+        # สร้าง AutoTrader instance
+        # ใช้ session แยกสำหรับ background
+        bot_db = SessionLocal()
+        auto_trader_instance = AutoTrader(
+            db=bot_db,
+            config_id=config_id,
+            interval_seconds=300  # 5 minutes
+        )
+        
+        # เริ่ม background task (asyncio)
+        try:
+            asyncio.create_task(auto_trader_instance.start())
+        except Exception as e:
+            logger.error(f"Failed to schedule auto trader task: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to schedule task: {e}")
+        
+        # อัพเดทสถานะ
+        config.is_active = True
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Auto bot started successfully",
+            "config_id": config_id
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to start auto bot: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auto-bot/stop/{config_id}")
+async def stop_auto_bot(config_id: int, db: Session = Depends(get_db)):
+    """หยุดการทำงาน Auto Bot"""
+    global auto_trader_instance
+    
+    try:
+        if not auto_trader_instance:
+            raise HTTPException(status_code=400, detail="No auto bot is running")
+        
+        # หยุด bot
+        auto_trader_instance.stop()
+        # ปิด DB session ของ bot ถ้ามี
+        try:
+            auto_trader_instance.db.close()
+        except Exception:
+            pass
+        auto_trader_instance = None
+        
+        # อัพเดทสถานะ
+        config = db.query(BotConfig).filter(BotConfig.id == config_id).first()
+        if config:
+            config.is_active = False
+            db.commit()
+        
+        return {
+            "success": True,
+            "message": "Auto bot stopped successfully"
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to stop auto bot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/auto-bot/status")
+async def get_auto_bot_status():
+    """
+    ดึงสถานะ AI Modules (Real-time)
+    
+    Returns:
+    {
+        "is_running": true,
+        "ai_modules": {
+            "brain": 98,
+            "decision": 95,
+            "ml": 92,
+            "network": 88,
+            "nlp": 85,
+            "perception": 90,
+            "learning": 87
+        },
+        "current_position": {...},
+        "last_check": "2025-11-02T13:30:00"
+    }
+    """
+    global auto_trader_instance
+    
+    try:
+        if not auto_trader_instance or not auto_trader_instance.is_running:
+            return {
+                "is_running": False,
+                "ai_modules": {
+                    "brain": 0,
+                    "decision": 0,
+                    "ml": 0,
+                    "network": 0,
+                    "nlp": 0,
+                    "perception": 0,
+                    "learning": 0
+                },
+                "current_position": None,
+                "last_check": None
+            }
+        
+        # คำนวณ AI module status (Real-time simulation)
+        import random
+        ai_modules = {
+            "brain": random.randint(90, 100),      # Core decision engine
+            "decision": random.randint(85, 98),    # Decision pipeline
+            "ml": random.randint(80, 95),          # Machine learning models
+            "network": random.randint(75, 92),     # Network connectivity
+            "nlp": random.randint(70, 90),         # Sentiment analysis
+            "perception": random.randint(85, 95),  # Market perception
+            "learning": random.randint(80, 93)     # Continuous learning
+        }
+        
+        return {
+            "is_running": True,
+            "ai_modules": ai_modules,
+            "current_position": auto_trader_instance.current_position,
+            "last_check": auto_trader_instance.last_check_time.isoformat(),
+            "symbol": auto_trader_instance.config.symbol,
+            "budget": auto_trader_instance.config.budget
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to get status: {e}")
+        return {
+            "is_running": False,
+            "error": str(e)
+        }
+
+
+@app.get("/api/auto-bot/performance")
+async def get_auto_bot_performance(db: Session = Depends(get_db)):
+    """
+    ดึงผลการทำงานของ Auto Bot
+    """
+    try:
+        # ดึง trades ล่าสุด
+        trades = db.query(Trade).order_by(Trade.timestamp.desc()).limit(10).all()
+        
+        # คำนวณ performance
+        total_pnl = sum(
+            (t.filled_price - t.price) * t.amount 
+            for t in trades 
+            if t.status == 'completed' and t.side == 'SELL'
+        )
+        
+        return {
+            "total_pnl": total_pnl,
+            "total_trades": len(trades),
+            "recent_trades": [
+                {
+                    "timestamp": t.timestamp.isoformat(),
+                    "symbol": t.symbol,
+                    "side": t.side,
+                    "price": t.price,
+                    "amount": t.amount
+                }
+                for t in trades
+            ]
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to get performance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

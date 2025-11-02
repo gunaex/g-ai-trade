@@ -158,6 +158,28 @@ class BinanceThailandClient:
             params['timeInForce'] = time_in_force
         
         return self._request('POST', '/api/v1/order', params, signed=True)
+
+    # Convenience wrappers to match internal bot usage
+    def create_market_buy_order(self, symbol: str, amount: float):
+        """Create a MARKET BUY order using the unified signature expected by the bot."""
+        # Binance TH expects symbols without slash, convert if needed
+        sym = symbol.replace('/', '')
+        return self.create_order(
+            symbol=sym,
+            side='BUY',
+            order_type='MARKET',
+            quantity=amount
+        )
+
+    def create_market_sell_order(self, symbol: str, amount: float):
+        """Create a MARKET SELL order using the unified signature expected by the bot."""
+        sym = symbol.replace('/', '')
+        return self.create_order(
+            symbol=sym,
+            side='SELL',
+            order_type='MARKET',
+            quantity=amount
+        )
     
     def get_order(self, symbol, order_id):
         """Query order status"""
@@ -203,18 +225,39 @@ class BinanceThailandClient:
 
 import ccxt
 
+# cache global exchange to avoid repeated, slow initializations
+_GLOBAL_EXCHANGE = None
+_GLOBAL_MARKETS_LOADED = False
+
 def get_global_exchange():
     """
-    Get global Binance exchange for reliable market data
-    Uses ccxt for convenience
+    Get (and cache) a global Binance exchange for reliable market data.
+    Attempts to load markets once in a best-effort manner without blocking future requests.
     """
-    exchange = ccxt.binance({
-        'enableRateLimit': True,
-        'options': {
-            'defaultType': 'spot',
-        }
-    })
-    return exchange
+    global _GLOBAL_EXCHANGE, _GLOBAL_MARKETS_LOADED
+    if _GLOBAL_EXCHANGE is None:
+        _GLOBAL_EXCHANGE = ccxt.binance({
+            'enableRateLimit': True,
+            'options': {
+                'defaultType': 'spot',
+            }
+        })
+        # Best-effort market load in a short-lived background thread to avoid blocking
+        try:
+            import threading
+            def _load():
+                global _GLOBAL_MARKETS_LOADED
+                try:
+                    _GLOBAL_EXCHANGE.load_markets()
+                    _GLOBAL_MARKETS_LOADED = True
+                except Exception:
+                    _GLOBAL_MARKETS_LOADED = False
+            t = threading.Thread(target=_load, daemon=True)
+            t.start()
+            t.join(timeout=3)
+        except Exception:
+            pass
+    return _GLOBAL_EXCHANGE
 
 
 # ==================== CONVENIENCE FUNCTIONS ====================
@@ -224,20 +267,16 @@ def get_binance_th_client():
     return BinanceThailandClient()
 
 def get_market_data_client():
-    """Get client for market data (uses global Binance)"""
+    """Get client for market data (uses cached global Binance)."""
     try:
-        exchange = get_global_exchange()
-        # Test the connection
-        exchange.load_markets()
-        return exchange
+        return get_global_exchange()
     except Exception as e:
-        print(f"Error initializing market data client: {e}")
-        # Create a minimal exchange with basic functionality
-        exchange = ccxt.binance({
+        print(f"Error getting market data client: {e}")
+        # Fallback to a fresh, minimal exchange if cache failed
+        return ccxt.binance({
             'enableRateLimit': True,
             'options': {
                 'defaultType': 'spot',
             },
-            'rateLimit': 1000  # Higher rate limit for safety
+            'rateLimit': 1000
         })
-        return exchange

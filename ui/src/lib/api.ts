@@ -194,6 +194,55 @@ export interface AdvancedAnalysis {
   }
 }
 
+// ============================================================================
+// AUTO BOT INTERFACES
+// ============================================================================
+
+export interface AutoBotConfig {
+  id?: number
+  name: string
+  symbol: string
+  budget: number
+  risk_level: 'conservative' | 'moderate' | 'aggressive'
+  min_confidence: number
+  position_size_ratio: number
+  max_daily_loss: number
+}
+
+export interface AutoBotStatus {
+  is_running: boolean
+  ai_modules: {
+    brain: number
+    decision: number
+    ml: number
+    network: number
+    nlp: number
+    perception: number
+    learning: number
+  }
+  current_position: {
+    trade_id: number
+    entry_price: number
+    quantity: number
+    entry_time: string
+  } | null
+  last_check: string | null
+  symbol?: string
+  budget?: number
+}
+
+export interface AutoBotPerformance {
+  total_pnl: number
+  total_trades: number
+  recent_trades: Array<{
+    timestamp: string
+    symbol: string
+    side: string
+    price: number
+    amount: number
+  }>
+}
+
 // API Methods
 export const apiClient = {
   // Health Check
@@ -250,7 +299,7 @@ export const apiClient = {
     api.get<AIForceStatus>('/bot/ai-force/status'),
 
   getAdvancedAnalysis: (symbol: string, currency: string = 'USD') =>
-    api.get<AdvancedAnalysis>(`/advanced-analysis/${symbol}?currency=${currency}`),
+    api.get<AdvancedAnalysis>(`/advanced-analysis/${symbol}?currency=${currency}`, { timeout: 20000 }),
 
   // Backtesting
   runBacktest: (config: BacktestConfig) =>
@@ -261,6 +310,25 @@ export const apiClient = {
 
   analyzeOnChain: (symbol: string) =>
     api.get(`/onchain/analyze?symbol=${symbol}`),
+
+  // Auto Bot APIs
+  createAutoBotConfig: (config: AutoBotConfig) =>
+    api.post('/auto-bot/create', config),
+
+  getAutoBotConfig: (configId: number) =>
+    api.get<AutoBotConfig>(`/auto-bot/config/${configId}`),
+
+  startAutoBot: (configId: number) =>
+    api.post(`/auto-bot/start/${configId}`),
+
+  stopAutoBot: (configId: number) =>
+    api.post(`/auto-bot/stop/${configId}`),
+
+  getAutoBotStatus: () =>
+    api.get<AutoBotStatus>('/auto-bot/status'),
+
+  getAutoBotPerformance: () =>
+    api.get<AutoBotPerformance>('/auto-bot/performance'),
 }
 
 export type ApiClient = typeof apiClient

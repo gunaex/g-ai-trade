@@ -132,20 +132,42 @@ export default function Trade() {
     
     const getCryptoPriceUSD = async (crypto: string): Promise<number> => {
       try {
+        // For stablecoins
+        if (crypto === 'USDT' || crypto === 'USD' || crypto === 'BUSD' || crypto === 'USDC') {
+          return 1.0
+        }
+        
+        // For THB
+        if (crypto === 'THB') {
+          return 1.0 / usdToThbRate
+        }
+        
+        // Use current market data if it's the selected crypto
         if (crypto === baseCurrency && marketData && marketData.price) {
           return marketData.price
         }
+        
+        // Fetch price from backend
         const response = await fetch(`http://localhost:8000/api/market/${crypto}USDT?currency=USD`)
+        if (!response.ok) {
+          console.warn(`Failed to fetch price for ${crypto}`)
+          return 0
+        }
         const data = await response.json()
         return data.price || 0
-      } catch {
+      } catch (error) {
+        console.warn(`Error fetching price for ${crypto}:`, error)
         return 0
       }
     }
     
+    // Calculate total value for all coins
     for (const [crypto, balance] of Object.entries(balanceMap)) {
+      if (balance <= 0) continue // Skip zero balances
+      
       if (currency === 'USD') {
-        if (crypto === 'USDT' || crypto === 'USD') {
+        // Display in USD
+        if (crypto === 'USDT' || crypto === 'USD' || crypto === 'BUSD' || crypto === 'USDC') {
           totalValue += balance
         } else if (crypto === 'THB') {
           totalValue += balance / usdToThbRate
@@ -154,9 +176,10 @@ export default function Trade() {
           totalValue += balance * priceUSD
         }
       } else {
+        // Display in THB
         if (crypto === 'THB') {
           totalValue += balance
-        } else if (crypto === 'USDT' || crypto === 'USD') {
+        } else if (crypto === 'USDT' || crypto === 'USD' || crypto === 'BUSD' || crypto === 'USDC') {
           totalValue += balance * usdToThbRate
         } else {
           const priceUSD = await getCryptoPriceUSD(crypto)

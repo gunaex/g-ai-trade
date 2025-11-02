@@ -4,6 +4,7 @@ import Trade from './pages/Trade'
 import Monitoring from './pages/Monitoring'
 import Settings from './pages/Settings'
 import Backtesting from './pages/Backtesting'
+import GodsHand from './pages/GodsHand'
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
             <Route path="/" element={<Trade />} />
             <Route path="/monitoring" element={<Monitoring />} />
             <Route path="/backtest" element={<Backtesting />} />
+            <Route path="/gods-hand" element={<GodsHand />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>

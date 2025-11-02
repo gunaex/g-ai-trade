@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { TrendingUp, Activity, Settings, BarChart3 } from 'lucide-react'
+import { TrendingUp, Activity, Settings, BarChart3, Brain } from 'lucide-react'
 
 export default function Navbar() {
   const location = useLocation()
@@ -29,6 +29,11 @@ export default function Navbar() {
         <Link to="/backtest" className={isActive('/backtest')}>
           <BarChart3 size={20} />
           <span>Backtest</span>
+        </Link>
+        
+        <Link to="/gods-hand" className={isActive('/gods-hand')}>
+          <Brain size={20} />
+          <span>God's Hand</span>
         </Link>
         
         <Link to="/settings" className={isActive('/settings')}>

@@ -1685,3 +1685,42 @@ body {
   transform: none;
 }
 */
+
+/* ============================================================================
+   God's Hand Link Special Effect
+   ============================================================================ */
+
+/* Target the God's Hand nav link (4th link with SVG) */
+.nav-link:has(svg:first-child):nth-child(4) {
+  position: relative;
+}
+
+.nav-link:has(svg:first-child):nth-child(4):hover {
+  background: linear-gradient(135deg, 
+    rgba(var(--color-primary-rgb), 0.1), 
+    rgba(var(--color-primary-rgb), 0.2)
+  );
+}
+
+.nav-link:has(svg:first-child):nth-child(4).active {
+  background: linear-gradient(135deg, 
+    var(--color-primary), 
+    var(--color-primary-hover)
+  );
+  box-shadow: 0 0 20px rgba(var(--color-primary-rgb), 0.5);
+}
+
+.nav-link:has(svg:first-child):nth-child(4).active svg {
+  animation: brainPulse 2s ease-in-out infinite;
+}
+
+@keyframes brainPulse {
+  0%, 100% { 
+    transform: scale(1); 
+    filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
+  }
+  50% { 
+    transform: scale(1.1); 
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.8));
+  }
+}

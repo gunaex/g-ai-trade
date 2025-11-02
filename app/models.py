@@ -48,3 +48,52 @@ class AuditLog(Base):
     details = Column(Text)
     ip_address = Column(String, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class BotConfig(Base):
+    """การตั้งค่า Auto Trading Bot"""
+    __tablename__ = 'bot_configs'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, default=1)  # สำหรับ multi-user ในอนาคต
+    
+    # Bot Settings
+    name = Column(String, default="Auto Bot")  # ชื่อ Bot
+    symbol = Column(String, default="BTC/USDT")  # 'BTC/USDT'
+    is_active = Column(Boolean, default=False)  # เปิด/ปิด Bot
+    
+    # Budget & Risk
+    budget = Column(Float, default=10000.0)  # งบประมาณ (USD)
+    position_size_ratio = Column(Float, default=0.95)  # ใช้เงิน 95%
+    min_confidence = Column(Float, default=0.7)  # AI Confidence threshold
+    
+    # Risk Level (Conservative/Moderate/Aggressive)
+    risk_level = Column(String, default='moderate')
+    max_daily_loss = Column(Float, default=5.0)  # ขาดทุนสูงสุด/วัน (%)
+    max_open_positions = Column(Integer, default=1)  # จำนวน position พร้อมกัน
+    
+    # Notification
+    enable_notifications = Column(Boolean, default=True)
+    telegram_chat_id = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self):
+        """Convert BotConfig to dictionary"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'symbol': self.symbol,
+            'budget': self.budget,
+            'risk_level': self.risk_level,
+            'min_confidence': self.min_confidence,
+            'position_size_ratio': self.position_size_ratio,
+            'max_daily_loss': self.max_daily_loss,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
