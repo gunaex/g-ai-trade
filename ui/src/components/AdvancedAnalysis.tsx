@@ -12,6 +12,10 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Helpers to format numbers without treating 0 as "N/A"
+  const isNum = (v: unknown): v is number => typeof v === 'number' && !Number.isNaN(v)
+  const pct = (v: unknown, d = 0) => (isNum(v) ? (v * 100).toFixed(d) : 'N/A')
+
   useEffect(() => {
     fetchAnalysis()
     const interval = setInterval(fetchAnalysis, 60000) // Update every 60 seconds
@@ -114,7 +118,7 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
             {analysis.action}
           </span>
               <span className="decision-confidence">
-            Confidence: {analysis.confidence ? (analysis.confidence * 100).toFixed(0) : 'N/A'}%
+            Confidence: {pct(analysis.confidence)}%
           </span>
         </div>
         <div className="decision-reason">
@@ -174,7 +178,7 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
               </div>
               <div className="metric-item">
                 <span>Confidence:</span>
-                <strong>{analysis.modules?.regime?.confidence ? (analysis.modules.regime.confidence * 100).toFixed(0) : 'N/A'}%</strong>
+                <strong>{pct(analysis.modules?.regime?.confidence)}%</strong>
               </div>
             </div>
             <div className={`regime-status ${analysis.modules?.regime?.allow_mean_reversion ? 'status-active' : 'status-inactive'}`}>
@@ -242,7 +246,7 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
               </div>
               <div className="metric-item">
                 <span>Volatility:</span>
-                <strong>{analysis.modules?.risk_levels?.volatility ? (analysis.modules.risk_levels.volatility * 100).toFixed(2) : 'N/A'}%</strong>
+                <strong>{pct(analysis.modules?.risk_levels?.volatility, 2)}%</strong>
               </div>
               <div className="metric-item">
                 <span>Stop Loss:</span>
@@ -298,7 +302,7 @@ export default function AdvancedAnalysis({ symbol, currency }: Props) {
               <div className="module-metrics">
               <div className="metric-item">
                 <span>Confidence:</span>
-                <strong>{analysis.modules?.reversal?.confidence ? (analysis.modules.reversal.confidence * 100).toFixed(0) : 'N/A'}%</strong>
+                <strong>{pct(analysis.modules?.reversal?.confidence)}%</strong>
               </div>
               <div className="metric-item">
                 <span>Order Book:</span>

@@ -98,12 +98,18 @@ class MarketRegimeFilter:
         # Mean Reversion works best in SIDEWAYS market
         allow_mean_reversion = (regime == 'SIDEWAYS')
         
+        # Handle NaN values in features
+        adx_val = features.iloc[-1]['adx']
+        bb_width_val = features.iloc[-1]['bb_width']
+        adx_val = float(adx_val) if not pd.isna(adx_val) else 25.0
+        bb_width_val = float(bb_width_val) if not pd.isna(bb_width_val) else 0.02
+        
         result = {
             'regime': regime,
             'confidence': confidence,
             'allow_mean_reversion': allow_mean_reversion,
-            'adx': features.iloc[-1]['adx'],
-            'bb_width': features.iloc[-1]['bb_width']
+            'adx': adx_val,
+            'bb_width': bb_width_val
         }
         
         self.regime = regime
@@ -117,8 +123,10 @@ class MarketRegimeFilter:
         ADX < 20: Weak trend (SIDEWAYS)
         ADX > 40: Strong trend (TRENDING)
         """
-        adx = features['adx']
-        ma_ratio = features['ma_ratio']
+        # Handle NaN values
+        adx = float(features['adx']) if not pd.isna(features['adx']) else 25.0  # Default to medium
+        ma_ratio = float(features['ma_ratio']) if not pd.isna(features['ma_ratio']) else 1.0
+        bb_width = float(features['bb_width']) if not pd.isna(features['bb_width']) else 0.02
         
         if adx < 20:
             regime = 'SIDEWAYS'
@@ -133,7 +141,7 @@ class MarketRegimeFilter:
             'confidence': 0.7,
             'allow_mean_reversion': (regime == 'SIDEWAYS'),
             'adx': adx,
-            'bb_width': features['bb_width']
+            'bb_width': bb_width
         }
 
 
@@ -156,13 +164,8 @@ class SentimentAnalyzer:
         Returns: sentiment score -1 to +1
         """
         try:
-            # Mock implementation - replace with actual Twitter API
-            # In production, use Twitter API v2 or social media aggregators
-            
-            # Example: CryptoPanic API (free tier available)
-            url = f"https://cryptopanic.com/api/v1/posts/?auth_token=YOUR_TOKEN&currencies={symbol}&filter=rising"
-            
-            # For demo, generate random sentiment
+            # Mock implementation - using fast random generation
+            # In production, replace with actual Twitter API or sentiment service
             import random
             sentiment = random.uniform(-0.3, 0.3)
             
@@ -264,17 +267,38 @@ class DynamicRiskManager:
     def calculate_atr(self, ohlcv: pd.DataFrame, period: int = 14) -> float:
         """
         Calculate Average True Range (ATR)
+        Returns 0.0 if calculation fails or data insufficient
         """
-        atr = ta.volatility.average_true_range(ohlcv['high'], ohlcv['low'], ohlcv['close'], window=period)
-        return atr.iloc[-1]
+        try:
+            atr = ta.volatility.average_true_range(ohlcv['high'], ohlcv['low'], ohlcv['close'], window=period)
+            atr_value = atr.iloc[-1]
+            if pd.isna(atr_value) or np.isnan(atr_value):
+                # Fallback: use price-based estimate
+                recent_high = ohlcv['high'].tail(period).max()
+                recent_low = ohlcv['low'].tail(period).min()
+                return (recent_high - recent_low) / period if recent_high > recent_low else ohlcv['close'].iloc[-1] * 0.01
+            return float(atr_value)
+        except Exception as e:
+            logger.warning(f"ATR calculation failed: {e}, using fallback")
+            # Fallback: 1% of current price
+            return ohlcv['close'].iloc[-1] * 0.01
     
     def calculate_volatility(self, ohlcv: pd.DataFrame) -> float:
         """
         Calculate recent volatility (standard deviation of returns)
+        Returns 0.02 (2%) if calculation fails
         """
-        returns = ohlcv['close'].pct_change()
-        volatility = returns.std()
-        return volatility
+        try:
+            returns = ohlcv['close'].pct_change().dropna()
+            if len(returns) < 2:
+                return 0.02  # Default 2% volatility
+            volatility = returns.std()
+            if pd.isna(volatility) or np.isnan(volatility):
+                return 0.02
+            return float(volatility)
+        except Exception as e:
+            logger.warning(f"Volatility calculation failed: {e}, using fallback")
+            return 0.02  # Default 2% volatility
     
     def get_dynamic_levels(self, ohlcv: pd.DataFrame, entry_price: float) -> Dict[str, float]:
         """
@@ -479,113 +503,286 @@ class AdvancedAITradingEngine:
         logger.info(f"🤖 Starting Advanced AI Analysis for {symbol}")
         
         try:
-            # 1. Market Regime Detection
-            regime = self.regime_filter.detect_regime(ohlcv)['regime']
+            # 1. Market Regime Detection (capture full dict)
+            regime_result = self.regime_filter.detect_regime(ohlcv)
+            regime = regime_result.get('regime', 'UNKNOWN')
             logger.info(f"📊 Market Regime: {regime}")
+
+            # 2. Sentiment Analysis (full dict)
+            sentiment_result = self.sentiment_analyzer.get_combined_sentiment(symbol)
+            # Sentiment analyzer returns keys: score, interpretation, should_trade, twitter, news
+            # For compatibility with older code, derive a combined_sentiment value
+            twitter_sentiment = sentiment_result.get('twitter', sentiment_result.get('score', 0))
+            news_sentiment = sentiment_result.get('news', 0)
+            combined_sentiment = sentiment_result.get('score', (twitter_sentiment + news_sentiment) / 2)
+
+            logger.info(f"🐦 Twitter Sentiment for {symbol}: {twitter_sentiment:.2f}")
+            logger.info(f"📰 News Sentiment for {symbol}: {news_sentiment:.2f}")
+
+            sentiment_label = 'BULLISH' if combined_sentiment > 0.1 else 'BEARISH' if combined_sentiment < -0.1 else 'NEUTRAL'
+            logger.info(f"💬 Combined Sentiment: {sentiment_label} ({combined_sentiment:.2f})")
+
+            # Early-exit rules — but always return full `modules` shape with defaults
+            current_price = float(ohlcv['close'].iloc[-1])
+            # compute risk levels where possible so frontend can show values
+            # Always ensure we have valid risk levels, even if simplified
+            try:
+                risk_levels_early = self.risk_manager.get_dynamic_levels(ohlcv, current_price)
+                # Validate all values are not None/NaN
+                if risk_levels_early.get('atr') is None or pd.isna(risk_levels_early.get('atr')):
+                    raise ValueError("ATR is None")
+            except Exception as e:
+                logger.warning(f"Risk levels calculation failed: {e}, using fallback defaults")
+                # Use safe fallback defaults (2% SL, 4% TP)
+                sl_pct = 2.0
+                tp_pct = 4.0
+                risk_levels_early = {
+                    'stop_loss_price': current_price * (1 - sl_pct / 100),
+                    'take_profit_price': current_price * (1 + tp_pct / 100),
+                    'stop_loss_pct': sl_pct,
+                    'take_profit_pct': tp_pct,
+                    'risk_reward_ratio': 2.0,
+                    'atr': current_price * 0.01,  # 1% of price as ATR estimate
+                    'volatility': 0.02  # 2% default volatility
+                }
+
+            # Normalize numeric types to plain Python floats or None
+            # Handle NaN, None, and invalid values
+            def _f(v):
+                try:
+                    if v is None:
+                        return None
+                    # Convert to float and check for NaN
+                    fval = float(v)
+                    if pd.isna(fval) or np.isnan(fval):
+                        return None
+                    return fval
+                except (ValueError, TypeError, OverflowError):
+                    return None
+
+            # Ensure ADX and BB width are never None - use 0 as fallback
+            adx_val = _f(regime_result.get('adx'))
+            bb_width_val = _f(regime_result.get('bb_width'))
             
-            # ✅ แก้ไข: อนุญาตให้เทรดใน TRENDING market
+            regime_obj = {
+                'regime': regime_result.get('regime', 'UNKNOWN'),
+                'confidence': float(regime_result.get('confidence', 0.0) or 0.0),
+                'allow_mean_reversion': bool(regime_result.get('allow_mean_reversion', False)),
+                'adx': adx_val if adx_val is not None else 0.0,
+                'bb_width': bb_width_val if bb_width_val is not None else 0.0
+            }
+
+            sentiment_obj = {
+                'score': _f(sentiment_result.get('score', combined_sentiment)),
+                'interpretation': sentiment_result.get('interpretation', 'NEUTRAL'),
+                'should_trade': bool(sentiment_result.get('should_trade', True)),
+                'twitter': _f(sentiment_result.get('twitter')),
+                'news': _f(sentiment_result.get('news'))
+            }
+
+            risk_obj = {
+                'stop_loss_price': _f(risk_levels_early.get('stop_loss_price')),
+                'take_profit_price': _f(risk_levels_early.get('take_profit_price')),
+                'stop_loss_pct': _f(risk_levels_early.get('stop_loss_pct')),
+                'take_profit_pct': _f(risk_levels_early.get('take_profit_pct')),
+                'atr': _f(risk_levels_early.get('atr')),
+                'volatility': _f(risk_levels_early.get('volatility'))
+            }
+
+            reversal_empty = {
+                'is_bullish_reversal': False,
+                'is_bearish_reversal': False,
+                'confidence': 0.0,
+                'patterns_detected': [],
+                'order_book_imbalance': 0.0
+            }
+
             if regime == 'SIDEWAYS':
                 return {
                     'action': 'HALT',
                     'confidence': 0.0,
                     'reason': f'Market in {regime} - Not tradeable',
-                    'regime': regime
+                    'current_price': current_price,
+                    'stop_loss': risk_obj['stop_loss_price'],
+                    'take_profit': risk_obj['take_profit_price'],
+                    'risk_reward_ratio': _f(risk_levels_early.get('risk_reward_ratio')),
+                    'modules': {
+                        'regime': regime_obj,
+                        'sentiment': sentiment_obj,
+                        'risk_levels': risk_obj,
+                        'reversal': reversal_empty
+                    }
                 }
-            
-            # 2. Sentiment Analysis
-            sentiment_score = self.sentiment_analyzer.get_combined_sentiment(symbol)
-            twitter_sentiment = sentiment_score.get('score', 0)
-            news_sentiment = sentiment_score.get('news', 0)
-            combined_sentiment = (twitter_sentiment + news_sentiment) / 2
-            
-            logger.info(f"🐦 Twitter Sentiment for {symbol}: {twitter_sentiment:.2f}")
-            logger.info(f"📰 News Sentiment for {symbol}: {news_sentiment:.2f}")
-            
-            sentiment_label = 'BULLISH' if combined_sentiment > 0.1 else 'BEARISH' if combined_sentiment < -0.1 else 'NEUTRAL'
-            logger.info(f"💬 Combined Sentiment: {sentiment_label} ({combined_sentiment:.2f})")
-            
-            # ✅ แก้ไข: ลด threshold ของ sentiment
-            if combined_sentiment < -0.3:  # เดิม -0.2, ปรับเป็น -0.3
+
+            if combined_sentiment < -0.3:
                 return {
                     'action': 'HOLD',
                     'confidence': 0.5,
                     'reason': f'Sentiment too negative ({combined_sentiment:.2f})',
-                    'regime': regime,
-                    'sentiment': combined_sentiment
+                    'current_price': current_price,
+                    'stop_loss': risk_obj['stop_loss_price'],
+                    'take_profit': risk_obj['take_profit_price'],
+                    'risk_reward_ratio': _f(risk_levels_early.get('risk_reward_ratio')),
+                    'modules': {
+                        'regime': regime_obj,
+                        'sentiment': sentiment_obj,
+                        'risk_levels': risk_obj,
+                        'reversal': reversal_empty
+                    }
                 }
-            
+
             # 3. Pattern Recognition
-            reversal = self.pattern_recognizer.get_reversal_signal(ohlcv, order_book)
-            patterns = reversal.get('patterns_detected', [])
-            
+            reversal_result = self.pattern_recognizer.get_reversal_signal(ohlcv, order_book)
+            patterns = reversal_result.get('patterns_detected', []) or []
+
             if not patterns:
                 logger.info("❌ No patterns detected")
-                # ✅ แก้ไข: ถ้าไม่มี pattern แต่ trend + sentiment ดี ก็ให้เทรดได้
+                # allow trend-following fallback
                 if regime == 'TRENDING_UP' and combined_sentiment >= 0:
-                    logger.info("✅ No pattern but TRENDING_UP + positive sentiment -> BUY")
-                    # Continue to risk management
+                    logger.info("✅ No pattern but TRENDING_UP + positive sentiment -> BUY (trend-following)")
                     patterns = [{'type': 'trend_following', 'strength': 0.6}]
                 elif regime == 'TRENDING_DOWN' and combined_sentiment <= 0:
-                    logger.info("✅ No pattern but TRENDING_DOWN + negative sentiment -> SELL")
+                    logger.info("✅ No pattern but TRENDING_DOWN + negative sentiment -> SELL (trend-following)")
                     patterns = [{'type': 'trend_following', 'strength': 0.6}]
                 else:
+                    # Return with proper normalized structure
                     return {
                         'action': 'HOLD',
                         'confidence': 0.4,
                         'reason': 'No clear patterns detected',
-                        'regime': regime,
-                        'sentiment': combined_sentiment
+                        'current_price': current_price,
+                        'stop_loss': risk_obj['stop_loss_price'],
+                        'take_profit': risk_obj['take_profit_price'],
+                        'risk_reward_ratio': _f(risk_levels_early.get('risk_reward_ratio')),
+                        'modules': {
+                            'regime': regime_obj,
+                            'sentiment': sentiment_obj,
+                            'risk_levels': risk_obj,
+                            'reversal': {
+                                'is_bullish_reversal': reversal_result.get('is_bullish_reversal', False),
+                                'is_bearish_reversal': reversal_result.get('is_bearish_reversal', False),
+                                'confidence': reversal_result.get('confidence', 0.0),
+                                'patterns_detected': reversal_result.get('patterns_detected', []),
+                                'order_book_imbalance': reversal_result.get('order_book_imbalance', 0.0)
+                            }
+                        }
                     }
-            
+
             logger.info(f"🔍 Patterns Detected: {len(patterns)} patterns")
-            
+
             # 4. Dynamic Risk Management
-            current_price = ohlcv['close'].iloc[-1]
+            current_price = float(ohlcv['close'].iloc[-1])
             risk_levels = self.risk_manager.get_dynamic_levels(ohlcv, current_price)
-            
-            stop_loss_pct = risk_levels['stop_loss_pct']
-            take_profit_pct = risk_levels['take_profit_pct']
-            risk_reward = risk_levels['risk_reward_ratio']
-            
+
+            stop_loss_price = risk_levels.get('stop_loss_price')
+            take_profit_price = risk_levels.get('take_profit_price')
+            stop_loss_pct = risk_levels.get('stop_loss_pct')
+            take_profit_pct = risk_levels.get('take_profit_pct')
+            risk_reward = risk_levels.get('risk_reward_ratio')
+
             logger.info(f"🎯 Dynamic Levels: SL={stop_loss_pct:.2f}%, TP={take_profit_pct:.2f}%, R:R={risk_reward:.2f}")
-            
-            # ✅ Final Decision Logic
-            # ถ้า TRENDING_UP + sentiment ไม่ติดลบมาก + มี pattern
+
+            # Normalize risk object to avoid NaN/undefined on frontend
+            risk_obj_final = {
+                'stop_loss_price': _f(stop_loss_price),
+                'take_profit_price': _f(take_profit_price),
+                'stop_loss_pct': _f(stop_loss_pct),
+                'take_profit_pct': _f(take_profit_pct),
+                'atr': _f(risk_levels.get('atr')),
+                'volatility': _f(risk_levels.get('volatility'))
+            }
+
+            # Final Decision Logic
             if regime == 'TRENDING_UP':
                 action = 'BUY'
-                confidence = 0.7 + (combined_sentiment * 0.2)  # 0.7-0.9
+                confidence = max(0.0, min(1.0, 0.7 + (combined_sentiment * 0.2)))
                 reason = f"Trend: UP | Sentiment: {sentiment_label} | Patterns: {len(patterns)}"
-            
             elif regime == 'TRENDING_DOWN':
                 action = 'SELL'
-                confidence = 0.7 + (abs(combined_sentiment) * 0.2)
+                confidence = max(0.0, min(1.0, 0.7 + (abs(combined_sentiment) * 0.2)))
                 reason = f"Trend: DOWN | Sentiment: {sentiment_label} | Patterns: {len(patterns)}"
-            
             else:
                 action = 'HOLD'
                 confidence = 0.5
                 reason = f"Market regime {regime} - waiting for clear signal"
-            
+
             logger.info(f"✅ Advanced AI Decision: {action} (Confidence: {confidence*100:.2f}%)")
             logger.info(f"   Reason: {reason}")
-            
-            return {
+
+            # Build response matching frontend `AdvancedAnalysis` type
+            response = {
                 'action': action,
                 'confidence': confidence,
                 'reason': reason,
-                'regime': regime,
-                'sentiment': combined_sentiment,
-                'patterns': patterns,
-                'stop_loss_percent': stop_loss_pct,
-                'take_profit_percent': take_profit_pct,
-                'risk_reward_ratio': risk_reward
+                'current_price': current_price,
+                'stop_loss': stop_loss_price,
+                'take_profit': take_profit_price,
+                'risk_reward_ratio': risk_reward,
+                'modules': {
+                    'regime': regime_obj,
+                    'sentiment': sentiment_obj,
+                    'risk_levels': risk_obj_final,
+                    'reversal': {
+                        'is_bullish_reversal': reversal_result.get('is_bullish_reversal', False),
+                        'is_bearish_reversal': reversal_result.get('is_bearish_reversal', False),
+                        'confidence': reversal_result.get('confidence', 0.0),
+                        'patterns_detected': reversal_result.get('patterns_detected', []),
+                        'order_book_imbalance': reversal_result.get('order_book_imbalance', 0.0)
+                    }
+                }
             }
+
+            return response
             
         except Exception as e:
             logger.error(f"Advanced AI Analysis Error: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            
+            # Always return full structure even on error
+            current_price = float(ohlcv['close'].iloc[-1]) if len(ohlcv) > 0 else 0.0
+            
+            # Safe fallback risk levels
+            fallback_risk = {
+                'stop_loss_price': current_price * 0.98 if current_price > 0 else None,
+                'take_profit_price': current_price * 1.04 if current_price > 0 else None,
+                'stop_loss_pct': 2.0,
+                'take_profit_pct': 4.0,
+                'risk_reward_ratio': 2.0,
+                'atr': current_price * 0.01 if current_price > 0 else 0.0,
+                'volatility': 0.02
+            }
+            
             return {
                 'action': 'HALT',
                 'confidence': 0.0,
                 'reason': f'Error: {str(e)}',
-                'regime': 'UNKNOWN'
+                'current_price': current_price,
+                'stop_loss': fallback_risk['stop_loss_price'],
+                'take_profit': fallback_risk['take_profit_price'],
+                'risk_reward_ratio': fallback_risk['risk_reward_ratio'],
+                'modules': {
+                    'regime': {
+                        'regime': 'UNKNOWN',
+                        'confidence': 0.0,
+                        'allow_mean_reversion': False,
+                        'adx': 0.0,
+                        'bb_width': 0.0
+                    },
+                    'sentiment': {
+                        'score': 0.0,
+                        'interpretation': 'NEUTRAL',
+                        'should_trade': False,
+                        'twitter': 0.0,
+                        'news': 0.0
+                    },
+                    'risk_levels': fallback_risk,
+                    'reversal': {
+                        'is_bullish_reversal': False,
+                        'is_bearish_reversal': False,
+                        'confidence': 0.0,
+                        'patterns_detected': [],
+                        'order_book_imbalance': 0.0
+                    }
+                }
             }

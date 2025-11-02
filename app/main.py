@@ -1,22 +1,28 @@
+
+import os
+import logging
+from datetime import datetime, timedelta
+from typing import Optional, List, Literal, Dict
+
+# Configure logging first
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+# Import FastAPI related modules
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional, List, Literal
-import os
-import logging
-from datetime import datetime, timedelta
+
+# SQLAlchemy related imports
 from sqlalchemy import and_, func
-
-# Configure logging
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-
-from app.db import engine, Base, get_db
-from app.ai.decision import AIDecisionEngine
-from app.models import Trade, GridBot, DCABot
 from sqlalchemy.orm import Session
+from app.db import engine, Base, get_db
+from app.models import Trade, GridBot, DCABot
+
+# Application specific imports
+from app.ai.decision import AIDecisionEngine
 from app.trading_bot import ai_trading_bot
 from app.ai.advanced_modules import AdvancedAITradingEngine
 
@@ -32,15 +38,23 @@ from app.backtesting.onchain_filter import (
 )
 from typing import Literal, Dict
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
-
 # Initialize FastAPI
 app = FastAPI(
     title="G-AI-TRADE API",
     version="1.0.0",
     description="AI-Powered Crypto Trading System"
 )
+
+# Initialize database on startup
+@app.on_event("startup")
+async def init_db():
+    logger.info("Initializing database...")
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing database: {e}")
+        # Don't raise the error - allow the app to start even if DB init fails
 
 # CORS Configuration
 app.add_middleware(
@@ -51,8 +65,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize AI Engine
-ai_engine = AIDecisionEngine()
+# Initialize AI Engine lazily to avoid heavy imports during app startup
+ai_engine = None  # type: Optional[AIDecisionEngine]
 
 # Pydantic Models
 class TradeRequest(BaseModel):
@@ -103,6 +117,14 @@ async def get_ai_decision(
     Returns: action, principle, predicted_pl, confidence
     """
     try:
+        global ai_engine
+        if ai_engine is None:
+            try:
+                ai_engine = AIDecisionEngine()
+            except Exception as e:
+                logger.error(f"Failed to initialize AIDecisionEngine: {e}")
+                raise HTTPException(status_code=500, detail=f"AI engine init error: {e}")
+
         decision = await ai_engine.analyze(symbol, currency)
         return decision
     except Exception as e:
@@ -757,8 +779,8 @@ async def get_ai_force_bot_status():
         raise HTTPException(status_code=500, detail=str(e))
     
 
-# Initialize Advanced AI Engine
-advanced_ai_engine = AdvancedAITradingEngine()
+# Initialize Advanced AI Engine lazily to avoid heavy imports during app startup
+advanced_ai_engine: Optional[AdvancedAITradingEngine] = None
 
 @app.get("/api/advanced-analysis/{symbol}")
 async def get_advanced_analysis(
@@ -773,16 +795,36 @@ async def get_advanced_analysis(
     - Micro-Pattern Recognition
     """
     try:
+        logger.info(f"Advanced analysis request for {symbol}")
         from app.binance_client import get_market_data_client
+        import asyncio
         
         client = get_market_data_client()
+        # Set shorter timeout for market data client
+        client.timeout = 10000  # 10 seconds
+        logger.info("Market data client initialized")
         
-        # Fetch OHLCV data
-        ohlcv_data = client.fetch_ohlcv(
-            symbol.replace('USDT', '/USDT'),
-            timeframe='1h',
-            limit=200
-        )
+        # Fetch OHLCV data with timeout
+        symbol_formatted = symbol.replace('USDT', '/USDT')
+        logger.info(f"Fetching OHLCV for {symbol_formatted}")
+        
+        try:
+            # Fetch with timeout
+            async def fetch_with_timeout():
+                import asyncio
+                return await asyncio.wait_for(
+                    asyncio.to_thread(client.fetch_ohlcv, symbol_formatted, timeframe='1h', limit=200),
+                    timeout=10.0
+                )
+            
+            ohlcv_data = await fetch_with_timeout()
+            logger.info(f"Fetched {len(ohlcv_data)} OHLCV bars")
+        except asyncio.TimeoutError:
+            logger.error("OHLCV fetch timeout")
+            raise HTTPException(status_code=504, detail="Market data fetch timeout - please try again")
+        except Exception as e:
+            logger.error(f"Failed to fetch OHLCV: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to fetch market data: {str(e)}")
         
         # Convert to DataFrame
         import pandas as pd
@@ -791,14 +833,172 @@ async def get_advanced_analysis(
             columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
         )
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        logger.info(f"Created DataFrame with {len(df)} rows")
         
-        # Fetch order book (optional)
-        order_book = client.fetch_order_book(symbol.replace('USDT', '/USDT'))
+        # Fetch order book (optional, with timeout)
+        try:
+            async def fetch_orderbook_with_timeout():
+                return await asyncio.wait_for(
+                    asyncio.to_thread(client.fetch_order_book, symbol_formatted),
+                    timeout=5.0
+                )
+            order_book = await fetch_orderbook_with_timeout()
+            logger.info(f"Fetched order book")
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.warning(f"Failed to fetch order book, using empty: {e}")
+            order_book = {'bids': [], 'asks': []}
         
-        # Run Advanced AI Analysis
-        analysis = advanced_ai_engine.analyze(symbol, df, order_book)
+        # Run Advanced AI Analysis (lazy init)
+        global advanced_ai_engine
+        if advanced_ai_engine is None:
+            try:
+                logger.info("Initializing AdvancedAITradingEngine")
+                advanced_ai_engine = AdvancedAITradingEngine()
+                logger.info("AdvancedAITradingEngine initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize AdvancedAITradingEngine: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Advanced AI engine init error: {str(e)}")
+
+        logger.info("Running analysis...")
+        # Run analysis with timeout
+        try:
+            async def analyze_with_timeout():
+                return await asyncio.wait_for(
+                    asyncio.to_thread(advanced_ai_engine.analyze, symbol, df, order_book),
+                    timeout=15.0
+                )
+            analysis = await analyze_with_timeout()
+        except asyncio.TimeoutError:
+            logger.error("Analysis timeout")
+            raise HTTPException(status_code=504, detail="Analysis took too long - please try again")
         
+        logger.info(f"Analysis complete: {analysis.get('action', 'NO_ACTION')}")
+        
+        # Validate response structure
+        if not isinstance(analysis, dict):
+            raise HTTPException(status_code=500, detail="Invalid analysis response format")
+        
+        if 'modules' not in analysis:
+            logger.warning("Analysis response missing 'modules' key, adding defaults")
+            analysis['modules'] = {
+                'regime': {'regime': 'UNKNOWN', 'confidence': 0.0, 'allow_mean_reversion': False, 'adx': 0.0, 'bb_width': 0.0},
+                'sentiment': {'score': 0.0, 'interpretation': 'NEUTRAL', 'should_trade': False, 'twitter': 0.0, 'news': 0.0},
+                'risk_levels': {'stop_loss_price': None, 'take_profit_price': None, 'stop_loss_pct': None, 'take_profit_pct': None, 'atr': None, 'volatility': None},
+                'reversal': {'is_bullish_reversal': False, 'is_bearish_reversal': False, 'confidence': 0.0, 'patterns_detected': [], 'order_book_imbalance': 0.0}
+            }
+        
+        logger.info("Returning analysis response")
         return analysis
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Advanced analysis endpoint error: {e}", exc_info=True)
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@app.get("/api/advanced-analysis/debug/{symbol}")
+async def get_advanced_analysis_debug(
+    symbol: str,
+    currency: str = "USD"
+):
+    """
+    Debug endpoint: runs analysis and returns module metadata (file path + mtime)
+    Use this to confirm which version of `advanced_modules.py` is being executed.
+    """
+    logger.info(f"Received request for symbol {symbol}")
+    try:
+        from app.binance_client import get_market_data_client
+        logger.info("Imported get_market_data_client")
+
+        client = get_market_data_client()
+        logger.info("Got market data client")
+
+        # Fetch OHLCV data
+        logger.info(f"Fetching OHLCV data for {symbol}")
+        symbol_formatted = symbol.replace('USDT', '/USDT')
+        logger.info(f"Formatted symbol: {symbol_formatted}")
+        try:
+            ohlcv_data = client.fetch_ohlcv(
+                symbol_formatted,
+                timeframe='1h',
+                limit=200
+            )
+            logger.info(f"Fetched {len(ohlcv_data)} OHLCV records")
+        except Exception as e:
+            logger.error(f"Error fetching OHLCV data: {e}")
+            raise HTTPException(status_code=500, detail=f"OHLCV data fetch error: {str(e)}")
+
+        # Convert to DataFrame
+        try:
+            import pandas as pd
+            df = pd.DataFrame(
+                ohlcv_data,
+                columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            )
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            logger.info(f"Created DataFrame with shape {df.shape}")
+        except Exception as e:
+            logger.error(f"Error creating DataFrame: {e}")
+            raise HTTPException(status_code=500, detail=f"DataFrame creation error: {str(e)}")
+
+        # Fetch order book
+        try:
+            order_book = client.fetch_order_book(symbol_formatted)
+            logger.info(f"Fetched order book with {len(order_book.get('bids', []))} bids and {len(order_book.get('asks', []))} asks")
+        except Exception as e:
+            logger.error(f"Error fetching order book: {e}")
+            order_book = {'bids': [], 'asks': []}  # Fallback to empty order book
+            logger.warning("Using empty order book due to fetch error")
+
+        # Lazy init engine
+        try:
+            global advanced_ai_engine
+            if advanced_ai_engine is None:
+                logger.info("Initializing AdvancedAITradingEngine")
+                advanced_ai_engine = AdvancedAITradingEngine()
+                logger.info("Successfully initialized AdvancedAITradingEngine")
+            else:
+                logger.info("Using existing AdvancedAITradingEngine instance")
+        except Exception as e:
+            logger.error(f"Error initializing AI engine: {e}")
+            raise HTTPException(status_code=500, detail=f"AI engine initialization error: {str(e)}")
+
+        # Run analysis
+        try:
+            analysis = advanced_ai_engine.analyze(symbol, df, order_book)
+            logger.info(f"Analysis completed successfully: {analysis.get('action', 'NO_ACTION')}")
+        except Exception as e:
+            logger.error(f"Error during analysis: {e}")
+            raise HTTPException(status_code=500, detail=f"Analysis execution error: {str(e)}")
+
+        # Get module metadata
+        try:
+            import os
+            import app.ai.advanced_modules as am
+            module_file = getattr(am, '__file__', None)
+            logger.info(f"Found module file: {module_file}")
+            if module_file and os.path.exists(module_file):
+                module_mtime = os.path.getmtime(module_file)
+                logger.info(f"Module last modified: {module_mtime}")
+            else:
+                module_mtime = None
+                logger.warning("Could not get module modification time")
+        except Exception as e:
+            logger.error(f"Error getting module metadata: {e}")
+            module_file = None
+            module_mtime = None
+
+        response = {
+            'analysis': analysis,
+            'module_file': module_file,
+            'module_mtime': module_mtime
+        }
+        logger.info("Successfully prepared response")
+        return response
+
+    except Exception as e:
+        logger.error(f"Unhandled error in debug endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Unhandled error: {str(e)}")

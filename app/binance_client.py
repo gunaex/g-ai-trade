@@ -225,4 +225,19 @@ def get_binance_th_client():
 
 def get_market_data_client():
     """Get client for market data (uses global Binance)"""
-    return get_global_exchange()
+    try:
+        exchange = get_global_exchange()
+        # Test the connection
+        exchange.load_markets()
+        return exchange
+    except Exception as e:
+        print(f"Error initializing market data client: {e}")
+        # Create a minimal exchange with basic functionality
+        exchange = ccxt.binance({
+            'enableRateLimit': True,
+            'options': {
+                'defaultType': 'spot',
+            },
+            'rateLimit': 1000  # Higher rate limit for safety
+        })
+        return exchange
