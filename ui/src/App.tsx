@@ -20,6 +20,14 @@ function App() {
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
+        <footer className="app-footer" style={{ padding: '8px 16px', fontSize: 12, color: '#888', textAlign: 'center' }}>
+          <small>
+            Times shown use server local time.{' '}
+            <a href="/TIMEZONE_INFO.md" target="_blank" rel="noreferrer">
+              About Timezones
+            </a>
+          </small>
+        </footer>
       </div>
     </Router>
   )

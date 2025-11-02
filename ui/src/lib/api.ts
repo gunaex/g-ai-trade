@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const API_BASE = (import.meta as any).env?.PROD ? '/api' : 'http://localhost:8000/api'
+// Prefer relative '/api' so Vite dev proxy handles requests and avoids CORS issues.
+// Allow override via VITE_API_URL when explicitly provided.
+const API_BASE: string = (import.meta as any).env?.VITE_API_URL || '/api'
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -229,6 +231,22 @@ export interface AutoBotStatus {
   last_check: string | null
   symbol?: string
   budget?: number
+  activity_log?: Array<{
+    timestamp: string
+    message: string
+    level: string
+    data: any
+  }>
+  config?: any
+  performance?: {
+    total_pnl: number
+    total_trades: number
+    win_trades: number
+    loss_trades: number
+    win_rate: number
+    total_fees: number
+    open_position_value: number
+  }
 }
 
 export interface AutoBotPerformance {

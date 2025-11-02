@@ -110,6 +110,31 @@ async def health_check():
         "version": "1.0.0"
     }
 
+@app.get("/api/server-info")
+async def get_server_info():
+    """
+    Get server information including timezone
+    All timestamps in this application use server local time
+    """
+    import time
+    import platform
+    
+    now = datetime.now()
+    
+    # Get timezone information
+    timezone_offset = time.strftime("%z")  # e.g., +0700
+    timezone_name = time.tzname[time.daylight] if time.daylight else time.tzname[0]
+    
+    return {
+        "server_time": now.isoformat(),
+        "server_time_utc": datetime.utcnow().isoformat(),
+        "timezone": timezone_name,
+        "timezone_offset": timezone_offset,
+        "timestamp_unix": int(now.timestamp()),
+        "platform": platform.system(),
+        "message": "All timestamps in this application use server local time"
+    }
+
 @app.get("/api/decision/{symbol}")
 async def get_ai_decision(
     symbol: str,
@@ -200,7 +225,7 @@ async def execute_trade(
     except Exception as e:
         trade.status = "failed"
         db.commit()
-        print(f"Trade execution error: {e}")
+        logger.error(f"Trade execution error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -358,7 +383,7 @@ async def get_market_data(symbol: str, currency: str = "USD"):
             "currency": currency
         }
     except Exception as e:
-        print(f"Market data error: {e}")
+        logger.error(f"Market data error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -507,7 +532,7 @@ async def get_performance(
         }
         
     except Exception as e:
-        print(f"Performance calculation error: {e}")
+        logger.error(f"Performance calculation error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/performance/recent-trades")
@@ -741,7 +766,7 @@ async def get_account_balance():
             "balances": account.get('balances', [])
         }
     except Exception as e:
-        print(f"Balance fetch error: {e}")
+        logger.error(f"Balance fetch error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # AI Force Trading Bot Endpoints
@@ -1132,14 +1157,9 @@ async def stop_auto_bot(config_id: int, db: Session = Depends(get_db)):
         if not auto_trader_instance:
             raise HTTPException(status_code=400, detail="No auto bot is running")
         
-        # หยุด bot
+        # หยุด bot (เก็บ instance ไว้เพื่อให้สามารถอ่าน activity_log หลังหยุดได้)
         auto_trader_instance.stop()
-        # ปิด DB session ของ bot ถ้ามี
-        try:
-            auto_trader_instance.db.close()
-        except Exception:
-            pass
-        auto_trader_instance = None
+        # ไม่ทำลาย instance ทันที เพื่อให้ /status ยังสามารถคืนค่า activity_log ล่าสุดได้
         
         # อัพเดทสถานะ
         config = db.query(BotConfig).filter(BotConfig.id == config_id).first()
@@ -1158,30 +1178,16 @@ async def stop_auto_bot(config_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/auto-bot/status")
-async def get_auto_bot_status():
+async def get_auto_bot_status(db: Session = Depends(get_db)):
     """
-    ดึงสถานะ AI Modules (Real-time)
-    
-    Returns:
-    {
-        "is_running": true,
-        "ai_modules": {
-            "brain": 98,
-            "decision": 95,
-            "ml": 92,
-            "network": 88,
-            "nlp": 85,
-            "perception": 90,
-            "learning": 87
-        },
-        "current_position": {...},
-        "last_check": "2025-11-02T13:30:00"
-    }
+    ดึงสถานะ Auto Bot แบบ Real-time
+    รวม: AI Modules, Activity Log, Config, Performance
     """
     global auto_trader_instance
     
     try:
-        if not auto_trader_instance or not auto_trader_instance.is_running:
+        if not auto_trader_instance:
+            # No instance at all
             return {
                 "is_running": False,
                 "ai_modules": {
@@ -1194,20 +1200,105 @@ async def get_auto_bot_status():
                     "learning": 0
                 },
                 "current_position": None,
-                "last_check": None
+                "last_check": None,
+                "activity_log": [],
+                "config": None,
+                "performance": {
+                    "total_pnl": 0,
+                    "total_trades": 0,
+                    "win_trades": 0,
+                    "loss_trades": 0,
+                    "win_rate": 0,
+                    "total_fees": 0,
+                    "open_position_value": 0
+                }
+            }
+
+        if not auto_trader_instance.is_running:
+            # Bot stopped: still return recent activity log and config so UI can show stop entry
+            activity_log = auto_trader_instance.get_activity_log(limit=10)
+            config = auto_trader_instance.config.to_dict() if auto_trader_instance.config else None
+            return {
+                "is_running": False,
+                "ai_modules": {
+                    "brain": 0,
+                    "decision": 0,
+                    "ml": 0,
+                    "network": 0,
+                    "nlp": 0,
+                    "perception": 0,
+                    "learning": 0
+                },
+                "current_position": None,
+                "last_check": None,
+                "activity_log": activity_log,
+                "config": config,
+                "performance": {
+                    "total_pnl": 0,
+                    "total_trades": 0,
+                    "win_trades": 0,
+                    "loss_trades": 0,
+                    "win_rate": 0,
+                    "total_fees": 0,
+                    "open_position_value": 0
+                }
             }
         
-        # คำนวณ AI module status (Real-time simulation)
+        # AI Module Status (Real-time simulation)
         import random
         ai_modules = {
-            "brain": random.randint(90, 100),      # Core decision engine
-            "decision": random.randint(85, 98),    # Decision pipeline
-            "ml": random.randint(80, 95),          # Machine learning models
-            "network": random.randint(75, 92),     # Network connectivity
-            "nlp": random.randint(70, 90),         # Sentiment analysis
-            "perception": random.randint(85, 95),  # Market perception
-            "learning": random.randint(80, 93)     # Continuous learning
+            "brain": random.randint(90, 100),
+            "decision": random.randint(85, 98),
+            "ml": random.randint(80, 95),
+            "network": random.randint(75, 92),
+            "nlp": random.randint(70, 90),
+            "perception": random.randint(85, 95),
+            "learning": random.randint(80, 93)
         }
+        
+        # Activity Log (Recent 10 activities)
+        activity_log = auto_trader_instance.get_activity_log(limit=10)
+        
+        # Bot Configuration
+        config = auto_trader_instance.config.to_dict()
+        
+        # Performance Metrics
+        trades = db.query(Trade).order_by(Trade.timestamp.desc()).limit(100).all()
+        
+        total_pnl = 0
+        total_fees = 0
+        win_trades = 0
+        loss_trades = 0
+        
+        for trade in trades:
+            if trade.status == 'completed' and trade.side == 'SELL':
+                # คำนวณ P/L
+                pnl = (trade.filled_price - trade.price) * trade.amount
+                total_pnl += pnl
+                
+                # คำนวณค่าธรรมเนียม (0.1% per trade)
+                total_fees += (trade.price * trade.amount * 0.001) + (trade.filled_price * trade.amount * 0.001)
+                
+                if pnl > 0:
+                    win_trades += 1
+                else:
+                    loss_trades += 1
+        
+        # คำนวณมูลค่า position ปัจจุบัน
+        open_position_value = 0
+        if auto_trader_instance.current_position:
+            try:
+                import asyncio
+                ticker = await asyncio.to_thread(
+                    auto_trader_instance.market_client.fetch_ticker,
+                    auto_trader_instance.config.symbol
+                )
+                current_price = float(ticker['last'])
+                open_position_value = (
+                    auto_trader_instance.current_position['quantity'] * current_price
+                )
+            except Exception:
+                pass
         
         return {
             "is_running": True,
@@ -1215,15 +1306,23 @@ async def get_auto_bot_status():
             "current_position": auto_trader_instance.current_position,
             "last_check": auto_trader_instance.last_check_time.isoformat(),
             "symbol": auto_trader_instance.config.symbol,
-            "budget": auto_trader_instance.config.budget
+            "budget": auto_trader_instance.config.budget,
+            "activity_log": activity_log,
+            "config": config,
+            "performance": {
+                "total_pnl": round(total_pnl, 2),
+                "total_trades": len(trades),
+                "win_trades": win_trades,
+                "loss_trades": loss_trades,
+                "win_rate": round((win_trades / len(trades) * 100) if trades else 0, 2),
+                "total_fees": round(total_fees, 2),
+                "open_position_value": round(open_position_value, 2)
+            }
         }
     
     except Exception as e:
-        logger.error(f"Failed to get status: {e}")
-        return {
-            "is_running": False,
-            "error": str(e)
-        }
+        logger.error(f"Failed to get status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/auto-bot/performance")

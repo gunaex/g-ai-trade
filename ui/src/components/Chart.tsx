@@ -23,11 +23,8 @@ export default function Chart({ data, symbol }: ChartProps) {
 
   useEffect(() => {
     if (!chartContainerRef.current || !data || data.length === 0) {
-      console.log('Chart: No data or container', { hasContainer: !!chartContainerRef.current, dataLength: data?.length })
       return
     }
-
-    console.log('Chart: Rendering with data', { dataLength: data.length, firstItem: data[0] })
 
     // Clean up existing chart
     if (chartRef.current) {
@@ -94,7 +91,7 @@ export default function Chart({ data, symbol }: ChartProps) {
       // Check if data is array format [timestamp, open, high, low, close, volume]
       const isArrayFormat = Array.isArray(data[0])
       
-      console.log('Chart: Data format check', { isArrayFormat, firstItem: data[0] })
+  // noop
 
       let normalizedData: OHLCVData[]
       
@@ -108,7 +105,7 @@ export default function Chart({ data, symbol }: ChartProps) {
           close: item[4],
           volume: item[5] || 0
         }))
-        console.log('Chart: Converted array to OHLCV', { first: normalizedData[0] })
+  // noop
       } else {
         // Already in object format
         const hasOHLCV = data[0] && 
@@ -155,12 +152,7 @@ export default function Chart({ data, symbol }: ChartProps) {
         }
       })
 
-      console.log('Chart: Setting data', { 
-        candleDataLength: formattedCandleData.length, 
-        volumeDataLength: formattedVolumeData.length,
-        firstCandle: formattedCandleData[0],
-        firstVolume: formattedVolumeData[0]
-      })
+      // noop
 
       candlestickSeries.setData(formattedCandleData)
       volumeSeries.setData(formattedVolumeData)
@@ -168,7 +160,7 @@ export default function Chart({ data, symbol }: ChartProps) {
       // Fit content to view
       chart.timeScale().fitContent()
       
-      console.log('Chart: Rendering complete')
+  // noop
     } catch (error) {
       console.error('Error formatting chart data:', error)
     }

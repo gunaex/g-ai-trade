@@ -5,9 +5,18 @@ import apiClient from '../lib/api'
 interface Props {
   onClose: () => void
   onSave: (configId: number) => void
+  initialConfig?: {
+    name: string
+    symbol: string
+    budget: number
+    risk_level: 'conservative' | 'moderate' | 'aggressive'
+    min_confidence: number
+    position_size_ratio: number
+    max_daily_loss: number
+  }
 }
 
-export default function AutoBotConfig({ onClose, onSave }: Props) {
+export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props) {
   const [config, setConfig] = useState<{
     name: string
     symbol: string
@@ -16,14 +25,28 @@ export default function AutoBotConfig({ onClose, onSave }: Props) {
     min_confidence: number
     position_size_ratio: number
     max_daily_loss: number
-  }>({
-    name: "God's Hand Bot",
-    symbol: 'BTC/USDT',
-    budget: 10000,
-    risk_level: 'moderate',
-    min_confidence: 0.7,
-    position_size_ratio: 0.95,
-    max_daily_loss: 5.0
+  }>(() => {
+    // Initialize state from initialConfig if provided, otherwise use defaults
+    if (initialConfig) {
+      return {
+        name: initialConfig.name ?? "God's Hand Bot",
+        symbol: initialConfig.symbol ?? 'BTC/USDT',
+        budget: Number(initialConfig.budget ?? 10000),
+        risk_level: (initialConfig.risk_level ?? 'moderate') as 'conservative' | 'moderate' | 'aggressive',
+        min_confidence: Number(initialConfig.min_confidence ?? 0.7),
+        position_size_ratio: Number(initialConfig.position_size_ratio ?? 0.95),
+        max_daily_loss: Number(initialConfig.max_daily_loss ?? 5.0),
+      }
+    }
+    return {
+      name: "God's Hand Bot",
+      symbol: 'BTC/USDT',
+      budget: 10000,
+      risk_level: 'moderate',
+      min_confidence: 0.7,
+      position_size_ratio: 0.95,
+      max_daily_loss: 5.0
+    }
   })
 
   const [saving, setSaving] = useState(false)
@@ -32,7 +55,7 @@ export default function AutoBotConfig({ onClose, onSave }: Props) {
     try {
       setSaving(true)
       
-      const response = await apiClient.createAutoBotConfig(config)
+  const response = await apiClient.createAutoBotConfig(config)
       
       // Pass the config_id to parent
       const configId = (response.data as any).config_id as number

@@ -9,6 +9,9 @@ import hashlib
 from urllib.parse import urlencode
 import os
 from dotenv import load_dotenv
+import logging
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -69,9 +72,12 @@ class BinanceThailandClient:
             return response.json()
             
         except requests.exceptions.RequestException as e:
-            print(f"Binance TH API Error: {e}")
+            logger.error(f"Binance TH API Error: {e}", exc_info=True)
             if hasattr(e, 'response') and e.response is not None:
-                print(f"Response: {e.response.text}")
+                try:
+                    logger.error(f"Response: {e.response.text}")
+                except Exception:
+                    pass
             raise
     
     # ==================== PUBLIC ENDPOINTS ====================
@@ -271,7 +277,7 @@ def get_market_data_client():
     try:
         return get_global_exchange()
     except Exception as e:
-        print(f"Error getting market data client: {e}")
+        logger.error(f"Error getting market data client: {e}", exc_info=True)
         # Fallback to a fresh, minimal exchange if cache failed
         return ccxt.binance({
             'enableRateLimit': True,

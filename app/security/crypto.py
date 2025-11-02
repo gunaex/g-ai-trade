@@ -1,6 +1,9 @@
 from cryptography.fernet import Fernet
 import os
 from dotenv import load_dotenv
+import logging
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -12,8 +15,8 @@ class APIKeyEncryption:
         if not secret_key:
             # Generate new key if not exists
             secret_key = Fernet.generate_key().decode()
-            print(f"Generated new SECRET_KEY: {secret_key}")
-            print("Add this to your .env file!")
+            logger.warning(f"Generated new SECRET_KEY: {secret_key}")
+            logger.warning("Add this to your .env file!")
         
         if isinstance(secret_key, str):
             secret_key = secret_key.encode()

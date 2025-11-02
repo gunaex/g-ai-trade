@@ -6,7 +6,8 @@ Auto Trading Engine
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Dict, Optional, List
+from collections import deque
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -59,7 +60,11 @@ class AutoTrader:
         self.current_position: Optional[Dict] = None
         self.last_check_time = datetime.utcnow()
         
+        # Activity Log (Keep last 100 activities)
+        self.activity_log: deque = deque(maxlen=100)
+        
         logger.info(f"🤖 AutoTrader initialized: {self.config.symbol} | Budget: {self.config.budget}")
+        self._log_activity("🤖 AutoTrader Initialized", "info")
     
     def _load_config(self) -> BotConfig:
         """โหลดการตั้งค่า Bot จาก database"""
@@ -68,10 +73,42 @@ class AutoTrader:
             raise ValueError(f"Bot config {self.config_id} not found")
         return config
     
+    def _log_activity(self, message: str, level: str = "info", data: Dict = None):
+        """
+        บันทึก Activity Log (ใช้ Server Local Time)
+        
+        Args:
+            message: ข้อความ
+            level: info, warning, error, success
+            data: ข้อมูลเพิ่มเติม (optional)
+        """
+        activity = {
+            "timestamp": datetime.now().isoformat(),  # Server local time
+            "message": message,
+            "level": level,
+            "data": data or {}
+        }
+        self.activity_log.append(activity)
+        
+        # Log to console as well
+        if level == "error":
+            logger.error(message)
+        elif level == "warning":
+            logger.warning(message)
+        elif level == "success":
+            logger.info(f"✅ {message}")
+        else:
+            logger.info(message)
+    
+    def get_activity_log(self, limit: int = 10) -> List[Dict]:
+        """ดึง Activity Log ล่าสุด"""
+        return list(self.activity_log)[-limit:]
+    
     async def start(self):
         """เริ่มการทำงาน Auto Trading"""
         self.is_running = True
         logger.info("🚀 Auto Trading Started!")
+        self._log_activity("🚀 Auto Trading Started!", "success")
         
         try:
             while self.is_running:
@@ -80,10 +117,17 @@ class AutoTrader:
         
         except Exception as e:
             logger.error(f"❌ Auto Trading Error: {e}")
+            self._log_activity(f"❌ Auto Trading Error: {e}", "error")
             self.is_running = False
     
     def stop(self):
         """หยุดการทำงาน"""
+        # Log stop activity before flipping the flag
+        try:
+            self._log_activity("🛑 Auto Trading Stopped", "info")
+        except Exception:
+            # Ensure stopping never fails due to logging
+            pass
         self.is_running = False
         logger.info("🛑 Auto Trading Stopped")
     
@@ -100,20 +144,28 @@ class AutoTrader:
         """
         try:
             logger.info(f"⏱️  [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] Trading Cycle")
+            self._log_activity("⏱️  Trading Cycle Started", "info")
             
             # 1. ดึงข้อมูลตลาด (offload blocking IO)
             ohlcv = await self._fetch_market_data()
             current_price = float(ohlcv['close'].iloc[-1])
             
             logger.info(f"💹 {self.config.symbol}: ${current_price:.2f}")
+            self._log_activity(
+                "💹 Market Data Fetched",
+                "info",
+                {"symbol": self.config.symbol, "price": current_price}
+            )
             
             # 2. เช็ค Position
             has_position = await self._check_position()
             
             if has_position:
+                self._log_activity("📊 Monitoring Position", "info")
                 # 3. Monitor Position (TP/SL/Trailing)
                 await self._monitor_position(current_price, ohlcv)
             else:
+                self._log_activity("🔍 Searching for Entry Signal", "info")
                 # 4. หา Entry Signal
                 await self._find_entry(current_price, ohlcv)
         
@@ -122,6 +174,7 @@ class AutoTrader:
 
         except Exception as e:
             logger.error(f"Trading cycle error: {e}")
+            self._log_activity(f"Trading cycle error: {e}", "error")
     
     async def _fetch_market_data(self) -> pd.DataFrame:
         """ดึงข้อมูลตลาด (OHLCV)"""
@@ -269,6 +322,15 @@ class AutoTrader:
             quantity = available_budget / current_price
             
             logger.info(f"🛒 Opening Position: {quantity:.6f} {self.config.symbol} @ ${current_price:.2f}")
+            self._log_activity(
+                "🛒 Opening Position",
+                "info",
+                {
+                    "quantity": round(quantity, 6),
+                    "price": current_price,
+                    "confidence": analysis.get('confidence', 0) * 100
+                }
+            )
             
             # ส่งคำสั่ง BUY ไปยัง Binance
             order = await asyncio.to_thread(
@@ -291,6 +353,15 @@ class AutoTrader:
             self.db.commit()
             
             logger.info(f"✅ Position Opened: Trade ID {trade.id}")
+            self._log_activity(
+                "✅ Position Opened",
+                "success",
+                {
+                    "trade_id": trade.id,
+                    "entry_price": current_price,
+                    "quantity": round(quantity, 6)
+                }
+            )
             
             # ส่ง Notification
             await self._send_notification(
@@ -303,6 +374,7 @@ class AutoTrader:
         
         except Exception as e:
             logger.error(f"Failed to open position: {e}")
+            self._log_activity(f"Failed to open position: {e}", "error")
     
     async def _close_position(self, current_price: float, reason: str):
         """
@@ -317,16 +389,27 @@ class AutoTrader:
             
             logger.info(f"🔄 Closing Position: {quantity:.6f} {self.config.symbol} @ ${current_price:.2f}")
             
+            # Calculate P/L
+            pnl = (current_price - entry_price) * quantity
+            pnl_pct = (current_price - entry_price) / entry_price * 100
+            
+            self._log_activity(
+                "🔄 Closing Position",
+                "info",
+                {
+                    "reason": reason,
+                    "exit_price": current_price,
+                    "pnl": round(pnl, 2),
+                    "pnl_pct": round(pnl_pct, 2)
+                }
+            )
+            
             # ส่งคำสั่ง SELL ไปยัง Binance
             order = await asyncio.to_thread(
                 self.trading_client.create_market_sell_order,
                 self.config.symbol,
                 quantity
             )
-            
-            # คำนวณ P/L
-            pnl = (current_price - entry_price) * quantity
-            pnl_pct = (current_price - entry_price) / entry_price * 100
             
             # อัพเดท database
             trade = self.db.query(Trade).filter(
@@ -339,6 +422,15 @@ class AutoTrader:
                 self.db.commit()
             
             logger.info(f"✅ Position Closed: P/L = ${pnl:+.2f} ({pnl_pct:+.2f}%)")
+            self._log_activity(
+                "💰 Position Closed",
+                "success" if pnl > 0 else "warning",
+                {
+                    "pnl": round(pnl, 2),
+                    "pnl_pct": round(pnl_pct, 2),
+                    "reason": reason
+                }
+            )
             
             # ส่ง Notification
             await self._send_notification(
@@ -354,6 +446,7 @@ class AutoTrader:
         
         except Exception as e:
             logger.error(f"Failed to close position: {e}")
+            self._log_activity(f"Failed to close position: {e}", "error")
     
     async def _send_notification(self, message: str):
         """
