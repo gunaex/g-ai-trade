@@ -59,11 +59,27 @@ async def init_db():
         # Don't raise the error - allow the app to start even if DB init fails
 
 # CORS Configuration
+# Get environment
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+# Configure CORS based on environment
+if ENVIRONMENT == "production":
+    # Production: Only allow specific origins
+    # TODO: Update with your actual production domain
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if not allowed_origins or allowed_origins == [""]:
+        logger.warning("PRODUCTION MODE: No ALLOWED_ORIGINS set! Using localhost only.")
+        allowed_origins = ["http://localhost", "http://localhost:8000"]
+else:
+    # Development: Allow all origins for easier testing
+    allowed_origins = ["*"]
+    logger.info("DEVELOPMENT MODE: CORS allows all origins")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

@@ -246,7 +246,15 @@ export default function GodsHand() {
       {/* Performance Tab */}
       {activeTab === 'performance' && botStatus && (
         <PerformanceDashboard 
-          performance={botStatus.performance} 
+          performance={botStatus.performance ?? {
+            total_pnl: 0,
+            total_trades: 0,
+            win_trades: 0,
+            loss_trades: 0,
+            win_rate: 0,
+            total_fees: 0,
+            open_position_value: 0
+          }} 
           isRunning={isRunning} 
         />
       )}

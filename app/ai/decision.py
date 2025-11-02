@@ -4,6 +4,10 @@ from datetime import datetime
 from typing import Dict, Any
 from app.binance_client import get_market_data_client
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class AIDecisionEngine:
     """
     4D AI Decision Engine:
@@ -89,7 +93,7 @@ class AIDecisionEngine:
             }
             
         except Exception as e:
-            print(f"AI analysis error: {e}")
+            logger.error(f"AI analysis error: {e}", exc_info=True)
             return {
                 "action": "HALT",
                 "principle": f"Error in analysis: {str(e)}",
@@ -134,7 +138,7 @@ class AIDecisionEngine:
             return market_score
             
         except Exception as e:
-            print(f"Market analysis error: {e}")
+            logger.error(f"Market analysis error: {e}", exc_info=True)
             return 0.5
     
     def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
