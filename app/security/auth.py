@@ -10,6 +10,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from cryptography.fernet import Fernet
 import os
 import base64
+import hashlib
+import logging
 
 # JWT Configuration
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
@@ -18,11 +20,34 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 # Encryption for API keys
-ENCRYPTION_KEY = os.getenv("SECRET_KEY", Fernet.generate_key().decode())
-# Ensure key is proper length for Fernet
-if len(ENCRYPTION_KEY) < 32:
-    ENCRYPTION_KEY = base64.urlsafe_b64encode(ENCRYPTION_KEY.ljust(32)[:32].encode()).decode()
-cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+logger = logging.getLogger("app.security.auth")
+
+def _derive_fernet_key_from_secret(secret: str) -> bytes:
+    """Derive a Fernet key from an arbitrary secret using SHA-256.
+    This ensures a deterministic, 32-byte key suitable for Fernet.
+    """
+    digest = hashlib.sha256(secret.encode("utf-8")).digest()  # 32 bytes
+    return base64.urlsafe_b64encode(digest)
+
+# Prefer a fully-formed Fernet key if provided
+_fernet_key_env = os.getenv("ENCRYPTION_KEY_FERNET")
+if _fernet_key_env:
+    try:
+        cipher_suite = Fernet(_fernet_key_env.encode("utf-8"))
+    except Exception:
+        logger.error("Invalid ENCRYPTION_KEY_FERNET provided; falling back to derived key")
+        _fernet_key_env = None
+
+if not _fernet_key_env:
+    # Derive from SECRET_KEY if available, else from JWT_SECRET_KEY
+    base_secret = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET_KEY")
+    if not base_secret:
+        # As a last resort, generate a key (acceptable in dev, risky in prod)
+        logger.warning("No SECRET_KEY/JWT_SECRET_KEY set; generating ephemeral encryption key. Keys will not be decryptable across restarts!")
+        cipher_suite = Fernet(Fernet.generate_key())
+    else:
+        derived_key = _derive_fernet_key_from_secret(base_secret)
+        cipher_suite = Fernet(derived_key)
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -50,7 +75,8 @@ def decrypt_api_key(encrypted_key: str) -> str:
         decrypted = cipher_suite.decrypt(encrypted_key.encode())
         return decrypted.decode()
     except Exception as e:
-        raise ValueError(f"Failed to decrypt API key: {e}")
+        # Normalize error to avoid leaking internals
+        raise ValueError("Failed to decrypt API key. Please re-save your API keys.")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

@@ -1121,8 +1121,11 @@ async def get_account_balance(
             raise HTTPException(status_code=400, detail="API keys not configured for this user")
 
         # Decrypt keys and create client
-        api_key = decrypt_api_key(user.binance_api_key)
-        api_secret = decrypt_api_key(user.binance_api_secret)
+        try:
+            api_key = decrypt_api_key(user.binance_api_key)
+            api_secret = decrypt_api_key(user.binance_api_secret)
+        except ValueError as de:
+            raise HTTPException(status_code=400, detail=str(de))
         client = get_binance_th_client(api_key=api_key, api_secret=api_secret)
         account = client.get_account()
         
