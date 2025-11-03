@@ -22,9 +22,10 @@ class BinanceThailandClient:
     API Version: v1
     """
     
-    def __init__(self):
-        self.api_key = os.getenv('BINANCE_API_KEY')
-        self.api_secret = os.getenv('BINANCE_SECRET')
+    def __init__(self, api_key: str | None = None, api_secret: str | None = None):
+        # Prefer explicitly provided user keys; fallback to environment (legacy)
+        self.api_key = api_key or os.getenv('BINANCE_API_KEY')
+        self.api_secret = api_secret or os.getenv('BINANCE_SECRET')
         self.base_url = 'https://api.binance.th'
         self.recv_window = 5000
         
@@ -268,9 +269,9 @@ def get_global_exchange():
 
 # ==================== CONVENIENCE FUNCTIONS ====================
 
-def get_binance_th_client():
-    """Get Binance Thailand API client"""
-    return BinanceThailandClient()
+def get_binance_th_client(api_key: str | None = None, api_secret: str | None = None):
+    """Get Binance Thailand API client. Accepts optional per-user API credentials."""
+    return BinanceThailandClient(api_key=api_key, api_secret=api_secret)
 
 def get_market_data_client():
     """Get client for market data (uses cached global Binance)."""

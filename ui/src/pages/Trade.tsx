@@ -92,6 +92,17 @@ export default function Trade() {
 
   const fetchBalances = async () => {
     try {
+      // Skip balance fetch if user hasn't configured API keys
+      try {
+        const status = await apiClient.getApiKeysStatus()
+        if (!status.data?.has_api_keys) {
+          setBalances({})
+          setTotalPortfolioValue(0)
+          return
+        }
+      } catch {
+        // If status endpoint fails (e.g., not authenticated), proceed and let error handler clear state
+      }
       const response = await apiClient.getAccountBalance()
       const data = response.data as any
       const balanceMap: Record<string, number> = {}

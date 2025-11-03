@@ -1103,20 +1103,35 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 @app.get("/api/account/balance")
-async def get_account_balance():
+async def get_account_balance(
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
     """
     Get account balances from Binance TH
     """
     try:
         from app.binance_client import get_binance_th_client
-        
-        client = get_binance_th_client()
+        # Load user-specific API keys
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if not user.binance_api_key or not user.binance_api_secret:
+            raise HTTPException(status_code=400, detail="API keys not configured for this user")
+
+        # Decrypt keys and create client
+        api_key = decrypt_api_key(user.binance_api_key)
+        api_secret = decrypt_api_key(user.binance_api_secret)
+        client = get_binance_th_client(api_key=api_key, api_secret=api_secret)
         account = client.get_account()
         
         # Format response to match expected structure
         return {
             "balances": account.get('balances', [])
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Balance fetch error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
