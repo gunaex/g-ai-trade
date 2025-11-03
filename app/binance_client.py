@@ -231,10 +231,114 @@ class BinanceThailandClient:
 # ==================== GLOBAL BINANCE FOR MARKET DATA ====================
 
 import ccxt
+from ccxt.base.errors import DDoSProtection, RateLimitExceeded
+from time import time as now_ts
 
 # cache global exchange to avoid repeated, slow initializations
 _GLOBAL_EXCHANGE = None
 _GLOBAL_MARKETS_LOADED = False
+
+
+class MarketDataProxy:
+    """
+    Thin proxy around ccxt.binance with:
+    - enableRateLimit already set on underlying exchange
+    - small in-memory caches to avoid hammering Binance
+    - graceful handling of 418/429 (DDoSProtection / RateLimitExceeded) with cooldown
+    - drop-in replacement: implements fetch_ticker, fetch_ohlcv, fetch_order_book
+    """
+
+    def __init__(self, exchange: ccxt.binance):
+        self.exchange = exchange
+        # caches: key -> (expires_at, value)
+        self._cache: dict[str, tuple[float, any]] = {}
+        # cooldown until timestamp if rate-limited/banned
+        self._cooldown_until: float = 0.0
+
+    def _cache_key(self, name: str, *parts) -> str:
+        return f"{name}|{'|'.join(map(str, parts))}"
+
+    def _get_cached(self, key: str) -> any | None:
+        item = self._cache.get(key)
+        if not item:
+            return None
+        expires, value = item
+        if now_ts() < expires:
+            return value
+        # expired
+        self._cache.pop(key, None)
+        return None
+
+    def _set_cache(self, key: str, ttl_sec: float, value: any):
+        self._cache[key] = (now_ts() + ttl_sec, value)
+
+    def _handle_rate_limit(self, err: Exception):
+        # Exponential-ish backoff; keep a short cooldown to avoid repeated hammering
+        cooldown = 30  # seconds
+        self._cooldown_until = max(self._cooldown_until, now_ts() + cooldown)
+        raise
+
+    def _respect_cooldown(self):
+        if now_ts() < self._cooldown_until:
+            # During cooldown return cached data if any; else raise a friendly error
+            raise DDoSProtection(f"Cooling down until {self._cooldown_until}")
+
+    # Drop-in wrappers
+    def fetch_ticker(self, symbol: str):
+        key = self._cache_key('ticker', symbol)
+        try:
+            # small TTL cache (5s)
+            cached = self._get_cached(key)
+            if cached is not None:
+                return cached
+            self._respect_cooldown()
+            data = self.exchange.fetch_ticker(symbol)
+            self._set_cache(key, 5, data)
+            return data
+        except (DDoSProtection, RateLimitExceeded) as e:
+            # return stale if present
+            cached = self._get_cached(key)
+            if cached is not None:
+                return cached
+            self._handle_rate_limit(e)
+
+    def fetch_ohlcv(self, symbol: str, timeframe: str = '1h', limit: int = 100):
+        key = self._cache_key('ohlcv', symbol, timeframe, limit)
+        try:
+            # OHLCV can be cached longer (i.e., one candle for timeframe)
+            ttl = {
+                '1m': 30, '3m': 45, '5m': 60, '15m': 180, '30m': 300,
+                '1h': 600, '2h': 1200, '4h': 1800, '1d': 3600
+            }.get(timeframe, 120)
+            cached = self._get_cached(key)
+            if cached is not None:
+                return cached
+            self._respect_cooldown()
+            data = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            self._set_cache(key, ttl, data)
+            return data
+        except (DDoSProtection, RateLimitExceeded) as e:
+            cached = self._get_cached(key)
+            if cached is not None:
+                return cached
+            self._handle_rate_limit(e)
+
+    def fetch_order_book(self, symbol: str, limit: int | None = None):
+        key = self._cache_key('order_book', symbol, limit or 0)
+        try:
+            # order book can be cached very briefly (2s)
+            cached = self._get_cached(key)
+            if cached is not None:
+                return cached
+            self._respect_cooldown()
+            data = self.exchange.fetch_order_book(symbol, limit=limit)
+            self._set_cache(key, 2, data)
+            return data
+        except (DDoSProtection, RateLimitExceeded) as e:
+            cached = self._get_cached(key)
+            if cached is not None:
+                return cached
+            self._handle_rate_limit(e)
 
 def get_global_exchange():
     """
@@ -245,6 +349,7 @@ def get_global_exchange():
     if _GLOBAL_EXCHANGE is None:
         _GLOBAL_EXCHANGE = ccxt.binance({
             'enableRateLimit': True,
+            'rateLimit': 1000,  # ms between requests (conservative)
             'options': {
                 'defaultType': 'spot',
             }
@@ -274,16 +379,18 @@ def get_binance_th_client(api_key: str | None = None, api_secret: str | None = N
     return BinanceThailandClient(api_key=api_key, api_secret=api_secret)
 
 def get_market_data_client():
-    """Get client for market data (uses cached global Binance)."""
+    """Get client for market data with caching and cooldown handling."""
     try:
-        return get_global_exchange()
+        exchange = get_global_exchange()
+        return MarketDataProxy(exchange)
     except Exception as e:
         logger.error(f"Error getting market data client: {e}", exc_info=True)
-        # Fallback to a fresh, minimal exchange if cache failed
-        return ccxt.binance({
+        # Fallback to a fresh, minimal proxied exchange if cache failed
+        fallback = ccxt.binance({
             'enableRateLimit': True,
+            'rateLimit': 1200,
             'options': {
                 'defaultType': 'spot',
             },
-            'rateLimit': 1000
         })
+        return MarketDataProxy(fallback)
