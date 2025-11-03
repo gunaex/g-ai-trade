@@ -1,15 +1,38 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 *.so
 .Python
+*.log
+
+# Virtual Environment
 env/
 venv/
-.venv
+.venv/
+.Python
+
+# Environment Variables
 .env
-.vscode/
+.env.local
+.env.production
+
+# Database
 *.db
 *.db-journal
-node_modules/
-dist/
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 .DS_Store
+
+# Node.js
+node_modules/
+
+# Build
+dist/
+build/
