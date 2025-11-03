@@ -20,8 +20,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           'vendor': ['react', 'react-dom', 'react-router-dom'],
-          'charts': ['recharts'],
-          'ui': ['@headlessui/react', '@heroicons/react']
+          'charts': ['recharts', 'lightweight-charts']
         }
       }
     }
