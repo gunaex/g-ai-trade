@@ -122,6 +122,23 @@ class DCABotRequest(BaseModel):
     interval_days: int = 7
     total_periods: int = 12
 
+# Fee protection models
+class FeeSettings(BaseModel):
+    maker_fee: float
+    taker_fee: float
+    min_profit_multiple: float
+    max_trades_per_hour: int
+    max_trades_per_day: int
+    min_hold_time_minutes: int
+
+class FeeSettingsUpdate(BaseModel):
+    maker_fee: Optional[float] = None
+    taker_fee: Optional[float] = None
+    min_profit_multiple: Optional[float] = None
+    max_trades_per_hour: Optional[int] = None
+    max_trades_per_day: Optional[int] = None
+    min_hold_time_minutes: Optional[int] = None
+
 # Authentication Models
 class UserRegister(BaseModel):
     username: str
@@ -1742,7 +1759,7 @@ async def get_auto_bot_status(
             except Exception:
                 pass
         
-        return {
+        result = {
             "is_running": True,
             "ai_modules": ai_modules,
             "current_position": auto_trader_instance.current_position,
@@ -1761,6 +1778,30 @@ async def get_auto_bot_status(
                 "open_position_value": round(open_position_value, 2)
             }
         }
+
+        # Include fee protection status and breakeven info if available
+        try:
+            fee_protection = getattr(auto_trader_instance, 'fee_protection', None)
+            if fee_protection is not None:
+                result["fee_settings"] = {
+                    "maker_fee": fee_protection.maker_fee,
+                    "taker_fee": fee_protection.taker_fee,
+                    "min_profit_multiple": fee_protection.min_profit_multiple,
+                    "max_trades_per_hour": fee_protection.max_trades_per_hour,
+                    "max_trades_per_day": fee_protection.max_trades_per_day,
+                    "min_hold_time_minutes": fee_protection.min_hold_time_minutes,
+                }
+                # Compute breakeven for current position
+                if auto_trader_instance.current_position:
+                    entry_price = auto_trader_instance.current_position['entry_price']
+                    qty = auto_trader_instance.current_position['quantity']
+                    pos_usd = entry_price * qty
+                    be = fee_protection.get_breakeven_price(entry_price, pos_usd)
+                    result["breakeven"] = be
+        except Exception:
+            pass
+
+        return result
     
     except Exception as e:
         logger.error(f"Failed to get status: {e}", exc_info=True)
@@ -1801,3 +1842,67 @@ async def get_auto_bot_performance(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Failed to get performance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== FEE PROTECTION ENDPOINTS ====================
+
+@app.get("/api/auto-bot/fee-settings")
+async def get_fee_settings(
+    current_user: dict = Depends(get_current_active_user),
+):
+    global auto_trader_instance
+    if not auto_trader_instance:
+        raise HTTPException(status_code=400, detail="Auto bot is not initialized. Start the bot first.")
+    fp = getattr(auto_trader_instance, 'fee_protection', None)
+    if fp is None:
+        raise HTTPException(status_code=404, detail="Fee protection is not available on this bot.")
+    return FeeSettings(
+        maker_fee=fp.maker_fee,
+        taker_fee=fp.taker_fee,
+        min_profit_multiple=fp.min_profit_multiple,
+        max_trades_per_hour=fp.max_trades_per_hour,
+        max_trades_per_day=fp.max_trades_per_day,
+        min_hold_time_minutes=fp.min_hold_time_minutes,
+    )
+
+
+@app.put("/api/auto-bot/fee-settings")
+async def update_fee_settings(
+    settings: FeeSettingsUpdate,
+    current_user: dict = Depends(get_current_active_user),
+):
+    global auto_trader_instance
+    if not auto_trader_instance:
+        raise HTTPException(status_code=400, detail="Auto bot is not initialized. Start the bot first.")
+    fp = getattr(auto_trader_instance, 'fee_protection', None)
+    if fp is None:
+        raise HTTPException(status_code=404, detail="Fee protection is not available on this bot.")
+
+    # Update only provided fields
+    if settings.maker_fee is not None:
+        fp.maker_fee = settings.maker_fee
+    if settings.taker_fee is not None:
+        fp.taker_fee = settings.taker_fee
+    if settings.min_profit_multiple is not None:
+        fp.min_profit_multiple = settings.min_profit_multiple
+    if settings.max_trades_per_hour is not None:
+        fp.max_trades_per_hour = settings.max_trades_per_hour
+    if settings.max_trades_per_day is not None:
+        fp.max_trades_per_day = settings.max_trades_per_day
+    if settings.min_hold_time_minutes is not None:
+        fp.min_hold_time_minutes = settings.min_hold_time_minutes
+
+    return {"success": True, "updated": settings.dict(exclude_none=True)}
+
+
+@app.get("/api/auto-bot/fee-summary")
+async def get_fee_summary(
+    current_user: dict = Depends(get_current_active_user),
+):
+    global auto_trader_instance
+    if not auto_trader_instance:
+        raise HTTPException(status_code=400, detail="Auto bot is not initialized. Start the bot first.")
+    fp = getattr(auto_trader_instance, 'fee_protection', None)
+    if fp is None:
+        raise HTTPException(status_code=404, detail="Fee protection is not available on this bot.")
+    return fp.get_fee_summary()

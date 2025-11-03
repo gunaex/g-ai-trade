@@ -302,6 +302,14 @@ export interface AutoBotStatus {
     total_fees: number
     open_position_value: number
   }
+  fee_settings?: FeeSettings
+  breakeven?: {
+    breakeven_price: number
+    breakeven_pct: number
+    min_profitable_price: number
+    min_profitable_pct: number
+    entry_price: number
+  }
 }
 
 export interface AutoBotPerformance {
@@ -314,6 +322,26 @@ export interface AutoBotPerformance {
     price: number
     amount: number
   }>
+}
+
+export interface FeeSettings {
+  maker_fee: number
+  taker_fee: number
+  min_profit_multiple: number
+  max_trades_per_hour: number
+  max_trades_per_day: number
+  min_hold_time_minutes: number
+}
+
+export interface FeeSummary {
+  trades_24h: number
+  buy_trades_24h: number
+  sell_trades_24h: number
+  volume_24h_usd: number
+  fees_24h_usd: number
+  profit_24h_usd: number
+  net_profit_24h_usd: number
+  fee_to_profit_ratio: number
 }
 
 // API Methods
@@ -402,6 +430,16 @@ export const apiClient = {
 
   getAutoBotPerformance: () =>
     api.get<AutoBotPerformance>('/auto-bot/performance'),
+
+  // Fee Protection APIs
+  getFeeSettings: () =>
+    api.get<FeeSettings>('/auto-bot/fee-settings'),
+
+  updateFeeSettings: (partial: Partial<FeeSettings>) =>
+    api.put('/auto-bot/fee-settings', partial),
+
+  getFeeSummary: () =>
+    api.get<FeeSummary>('/auto-bot/fee-summary'),
 
   // Authentication
   register: (username: string, email: string, password: string) =>

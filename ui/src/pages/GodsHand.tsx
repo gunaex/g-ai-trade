@@ -236,6 +236,18 @@ export default function GodsHand() {
                   <span className="label">Entry Time:</span>
                   <span className="value">{new Date(botStatus.current_position.entry_time).toLocaleString()}</span>
                 </div>
+                {botStatus.breakeven && (
+                  <>
+                    <div className="detail-item">
+                      <span className="label">Breakeven:</span>
+                      <span className="value">${botStatus.breakeven.breakeven_price.toFixed(2)} (+{botStatus.breakeven.breakeven_pct.toFixed(2)}%)</span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">Min Profitable:</span>
+                      <span className="value">${botStatus.breakeven.min_profitable_price.toFixed(2)} (+{botStatus.breakeven.min_profitable_pct.toFixed(2)}%)</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
