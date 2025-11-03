@@ -10,6 +10,10 @@ import ta  # Using ta package instead of talib for now
 import requests
 from textblob import TextBlob
 
+# Import new advanced modules
+from app.ai.risk_management import PositionSizer, AdaptiveStopLoss, PerformanceTracker
+from app.ai.market_analysis import MultiTimeframeAnalyzer, VolumeAnalyzer, LiquidityAnalyzer, CorrelationAnalyzer
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -487,53 +491,97 @@ class MicroPatternRecognizer:
 
 class AdvancedAITradingEngine:
     """
-    Combines all 4 modules to make intelligent trading decisions
+    Combines all modules to make intelligent trading decisions
+    
+    Core Modules:
+    - Market Regime Filter
+    - Volume Analyzer (replaces fake sentiment)
+    - Dynamic Risk Manager
+    - Pattern Recognizer
+    
+    Advanced Modules:
+    - Multi-Timeframe Analyzer
+    - Position Sizer (Kelly Criterion)
+    - Adaptive Stop Loss
+    - Liquidity Analyzer
+    - Performance Tracker
     """
     
-    def __init__(self):
+    def __init__(self, market_client=None):
+        # Core modules
         self.regime_filter = MarketRegimeFilter()
-        self.sentiment_analyzer = SentimentAnalyzer()
+        self.volume_analyzer = VolumeAnalyzer()  # Replaces SentimentAnalyzer
         self.risk_manager = DynamicRiskManager()
         self.pattern_recognizer = MicroPatternRecognizer()
         
-    def analyze(self, symbol: str, ohlcv: pd.DataFrame, order_book: Optional[dict] = None) -> Dict:
+        # Advanced modules
+        self.market_client = market_client
+        if market_client:
+            self.mtf_analyzer = MultiTimeframeAnalyzer(market_client)
+            self.liquidity_analyzer = LiquidityAnalyzer(market_client)
+            self.correlation_analyzer = CorrelationAnalyzer(market_client)
+        else:
+            self.mtf_analyzer = None
+            self.liquidity_analyzer = None
+            self.correlation_analyzer = None
+        
+        self.position_sizer = PositionSizer(max_risk_per_trade=0.02)
+        self.performance_tracker = PerformanceTracker()
+        
+        # Keep old sentiment analyzer for backward compatibility but mark as deprecated
+        self.sentiment_analyzer = SentimentAnalyzer()
+        
+    def analyze(self, symbol: str, ohlcv: pd.DataFrame, order_book: Optional[dict] = None,
+                account_balance: float = 10000.0, confidence_override: Optional[float] = None) -> Dict:
         """
-        Main Analysis Pipeline
+        Main Analysis Pipeline with Advanced Features
+        
+        Args:
+            symbol: Trading pair (e.g., 'BTC/USDT')
+            ohlcv: OHLCV DataFrame
+            order_book: Optional order book data
+            account_balance: Account balance for position sizing
+            confidence_override: Optional confidence override
+        
+        Returns:
+            Comprehensive analysis with action, risk levels, position size, etc.
         """
         logger.info(f"🤖 Starting Advanced AI Analysis for {symbol}")
         
         try:
-            # 1. Market Regime Detection (capture full dict)
+            # 1. Market Regime Detection
             regime_result = self.regime_filter.detect_regime(ohlcv)
             regime = regime_result.get('regime', 'UNKNOWN')
             logger.info(f"📊 Market Regime: {regime}")
 
-            # 2. Sentiment Analysis (full dict)
-            sentiment_result = self.sentiment_analyzer.get_combined_sentiment(symbol)
-            # Sentiment analyzer returns keys: score, interpretation, should_trade, twitter, news
-            # For compatibility with older code, derive a combined_sentiment value
-            twitter_sentiment = sentiment_result.get('twitter', sentiment_result.get('score', 0))
-            news_sentiment = sentiment_result.get('news', 0)
-            combined_sentiment = sentiment_result.get('score', (twitter_sentiment + news_sentiment) / 2)
+            # 2. Multi-Timeframe Analysis (if available)
+            mtf_result = None
+            if self.mtf_analyzer:
+                try:
+                    mtf_result = self.mtf_analyzer.analyze(symbol)
+                    logger.info(f"📈 Multi-TF: {mtf_result.get('alignment', 'N/A')} (Conf: {mtf_result.get('confidence', 0)*100:.1f}%)")
+                except Exception as e:
+                    logger.warning(f"Multi-timeframe analysis failed: {e}")
 
-            logger.info(f"🐦 Twitter Sentiment for {symbol}: {twitter_sentiment:.2f}")
-            logger.info(f"📰 News Sentiment for {symbol}: {news_sentiment:.2f}")
+            # 3. Volume Analysis (replaces fake sentiment)
+            volume_result = self.volume_analyzer.analyze(ohlcv)
+            volume_score = volume_result.get('score', 0.5)
+            logger.info(f"� Volume Analysis: {volume_result.get('interpretation', 'NEUTRAL')} (Score: {volume_score:.2f})")
 
-            sentiment_label = 'BULLISH' if combined_sentiment > 0.1 else 'BEARISH' if combined_sentiment < -0.1 else 'NEUTRAL'
-            logger.info(f"💬 Combined Sentiment: {sentiment_label} ({combined_sentiment:.2f})")
+            # 4. Pattern Recognition
+            reversal_result = self.pattern_recognizer.get_reversal_signal(ohlcv, order_book)
+            patterns = reversal_result.get('patterns_detected', []) or []
 
-            # Early-exit rules — but always return full `modules` shape with defaults
+            # Early exit checks
             current_price = float(ohlcv['close'].iloc[-1])
-            # compute risk levels where possible so frontend can show values
-            # Always ensure we have valid risk levels, even if simplified
+            
+            # Compute fallback risk levels
             try:
                 risk_levels_early = self.risk_manager.get_dynamic_levels(ohlcv, current_price)
-                # Validate all values are not None/NaN
                 if risk_levels_early.get('atr') is None or pd.isna(risk_levels_early.get('atr')):
                     raise ValueError("ATR is None")
             except Exception as e:
                 logger.warning(f"Risk levels calculation failed: {e}, using fallback defaults")
-                # Use safe fallback defaults (2% SL, 4% TP)
                 sl_pct = 2.0
                 tp_pct = 4.0
                 risk_levels_early = {
@@ -542,17 +590,15 @@ class AdvancedAITradingEngine:
                     'stop_loss_pct': sl_pct,
                     'take_profit_pct': tp_pct,
                     'risk_reward_ratio': 2.0,
-                    'atr': current_price * 0.01,  # 1% of price as ATR estimate
-                    'volatility': 0.02  # 2% default volatility
+                    'atr': current_price * 0.01,
+                    'volatility': 0.02
                 }
 
-            # Normalize numeric types to plain Python floats or None
-            # Handle NaN, None, and invalid values
+            # Normalize helper
             def _f(v):
                 try:
                     if v is None:
                         return None
-                    # Convert to float and check for NaN
                     fval = float(v)
                     if pd.isna(fval) or np.isnan(fval):
                         return None
@@ -560,7 +606,7 @@ class AdvancedAITradingEngine:
                 except (ValueError, TypeError, OverflowError):
                     return None
 
-            # Ensure ADX and BB width are never None - use 0 as fallback
+            # Build normalized regime object
             adx_val = _f(regime_result.get('adx'))
             bb_width_val = _f(regime_result.get('bb_width'))
             
@@ -572,12 +618,14 @@ class AdvancedAITradingEngine:
                 'bb_width': bb_width_val if bb_width_val is not None else 0.0
             }
 
-            sentiment_obj = {
-                'score': _f(sentiment_result.get('score', combined_sentiment)),
-                'interpretation': sentiment_result.get('interpretation', 'NEUTRAL'),
-                'should_trade': bool(sentiment_result.get('should_trade', True)),
-                'twitter': _f(sentiment_result.get('twitter')),
-                'news': _f(sentiment_result.get('news'))
+            # Build volume object (replaces sentiment)
+            volume_obj = {
+                'score': _f(volume_result.get('score', 0.5)),
+                'interpretation': volume_result.get('interpretation', 'NEUTRAL'),
+                'should_trade': bool(volume_result.get('should_trade', True)),
+                'vwap': volume_result.get('vwap', {}),
+                'obv': volume_result.get('obv', {}),
+                'volume_spike': volume_result.get('volume_spike', {})
             }
 
             risk_obj = {
@@ -597,7 +645,8 @@ class AdvancedAITradingEngine:
                 'order_book_imbalance': 0.0
             }
 
-            if regime == 'SIDEWAYS':
+            # Early exit: SIDEWAYS market
+            if regime == 'SIDEWAYS' and not patterns:
                 return {
                     'action': 'HALT',
                     'confidence': 0.0,
@@ -608,44 +657,50 @@ class AdvancedAITradingEngine:
                     'risk_reward_ratio': _f(risk_levels_early.get('risk_reward_ratio')),
                     'modules': {
                         'regime': regime_obj,
-                        'sentiment': sentiment_obj,
+                        'volume': volume_obj,  # Changed from sentiment
                         'risk_levels': risk_obj,
-                        'reversal': reversal_empty
+                        'reversal': reversal_empty,
+                        'mtf': mtf_result
                     }
                 }
 
-            if combined_sentiment < -0.3:
+            # Early exit: Very negative volume sentiment
+            if volume_score < 0.35:
                 return {
                     'action': 'HOLD',
                     'confidence': 0.5,
-                    'reason': f'Sentiment too negative ({combined_sentiment:.2f})',
+                    'reason': f'Volume analysis too negative ({volume_score:.2f})',
                     'current_price': current_price,
                     'stop_loss': risk_obj['stop_loss_price'],
                     'take_profit': risk_obj['take_profit_price'],
                     'risk_reward_ratio': _f(risk_levels_early.get('risk_reward_ratio')),
                     'modules': {
                         'regime': regime_obj,
-                        'sentiment': sentiment_obj,
+                        'volume': volume_obj,
                         'risk_levels': risk_obj,
-                        'reversal': reversal_empty
+                        'reversal': reversal_empty,
+                        'mtf': mtf_result
                     }
                 }
 
-            # 3. Pattern Recognition
-            reversal_result = self.pattern_recognizer.get_reversal_signal(ohlcv, order_book)
-            patterns = reversal_result.get('patterns_detected', []) or []
+            # Multi-timeframe check
+            mtf_confidence_boost = 0.0
+            if mtf_result and mtf_result.get('alignment') == 'STRONG_BULLISH':
+                mtf_confidence_boost = 0.15
+            elif mtf_result and mtf_result.get('alignment') == 'STRONG_BEARISH':
+                mtf_confidence_boost = 0.15
 
+            # Pattern analysis
             if not patterns:
                 logger.info("❌ No patterns detected")
-                # allow trend-following fallback
-                if regime == 'TRENDING_UP' and combined_sentiment >= 0:
-                    logger.info("✅ No pattern but TRENDING_UP + positive sentiment -> BUY (trend-following)")
+                # Allow trend-following fallback
+                if regime == 'TRENDING_UP' and volume_score >= 0.5:
+                    logger.info("✅ No pattern but TRENDING_UP + positive volume -> BUY (trend-following)")
                     patterns = [{'type': 'trend_following', 'strength': 0.6}]
-                elif regime == 'TRENDING_DOWN' and combined_sentiment <= 0:
-                    logger.info("✅ No pattern but TRENDING_DOWN + negative sentiment -> SELL (trend-following)")
+                elif regime == 'TRENDING_DOWN' and volume_score <= 0.5:
+                    logger.info("✅ No pattern but TRENDING_DOWN + negative volume -> SELL (trend-following)")
                     patterns = [{'type': 'trend_following', 'strength': 0.6}]
                 else:
-                    # Return with proper normalized structure
                     return {
                         'action': 'HOLD',
                         'confidence': 0.4,
@@ -656,7 +711,7 @@ class AdvancedAITradingEngine:
                         'risk_reward_ratio': _f(risk_levels_early.get('risk_reward_ratio')),
                         'modules': {
                             'regime': regime_obj,
-                            'sentiment': sentiment_obj,
+                            'volume': volume_obj,
                             'risk_levels': risk_obj,
                             'reversal': {
                                 'is_bullish_reversal': reversal_result.get('is_bullish_reversal', False),
@@ -664,14 +719,14 @@ class AdvancedAITradingEngine:
                                 'confidence': reversal_result.get('confidence', 0.0),
                                 'patterns_detected': reversal_result.get('patterns_detected', []),
                                 'order_book_imbalance': reversal_result.get('order_book_imbalance', 0.0)
-                            }
+                            },
+                            'mtf': mtf_result
                         }
                     }
 
             logger.info(f"🔍 Patterns Detected: {len(patterns)} patterns")
 
-            # 4. Dynamic Risk Management
-            current_price = float(ohlcv['close'].iloc[-1])
+            # 5. Dynamic Risk Management
             risk_levels = self.risk_manager.get_dynamic_levels(ohlcv, current_price)
 
             stop_loss_price = risk_levels.get('stop_loss_price')
@@ -682,7 +737,6 @@ class AdvancedAITradingEngine:
 
             logger.info(f"🎯 Dynamic Levels: SL={stop_loss_pct:.2f}%, TP={take_profit_pct:.2f}%, R:R={risk_reward:.2f}")
 
-            # Normalize risk object to avoid NaN/undefined on frontend
             risk_obj_final = {
                 'stop_loss_price': _f(stop_loss_price),
                 'take_profit_price': _f(take_profit_price),
@@ -692,24 +746,56 @@ class AdvancedAITradingEngine:
                 'volatility': _f(risk_levels.get('volatility'))
             }
 
-            # Final Decision Logic
+            # 6. Final Decision Logic with Multi-Timeframe Integration
+            base_confidence = 0.7
+            
+            # Adjust confidence based on volume analysis
+            volume_adjustment = (volume_score - 0.5) * 0.4  # -0.2 to +0.2
+            
             if regime == 'TRENDING_UP':
                 action = 'BUY'
-                confidence = max(0.0, min(1.0, 0.7 + (combined_sentiment * 0.2)))
-                reason = f"Trend: UP | Sentiment: {sentiment_label} | Patterns: {len(patterns)}"
+                confidence = base_confidence + volume_adjustment + mtf_confidence_boost
+                reason = f"Trend: UP | Volume: {volume_result.get('interpretation', 'N/A')} | Patterns: {len(patterns)}"
+                
+                # Add multi-timeframe info if available
+                if mtf_result:
+                    reason += f" | MTF: {mtf_result.get('alignment', 'N/A')}"
+                    
             elif regime == 'TRENDING_DOWN':
                 action = 'SELL'
-                confidence = max(0.0, min(1.0, 0.7 + (abs(combined_sentiment) * 0.2)))
-                reason = f"Trend: DOWN | Sentiment: {sentiment_label} | Patterns: {len(patterns)}"
+                confidence = base_confidence + abs(volume_adjustment) + mtf_confidence_boost
+                reason = f"Trend: DOWN | Volume: {volume_result.get('interpretation', 'N/A')} | Patterns: {len(patterns)}"
+                
+                if mtf_result:
+                    reason += f" | MTF: {mtf_result.get('alignment', 'N/A')}"
             else:
                 action = 'HOLD'
                 confidence = 0.5
                 reason = f"Market regime {regime} - waiting for clear signal"
 
+            # Cap confidence at 0.95
+            confidence = max(0.0, min(0.95, confidence))
+            
+            # Override confidence if provided
+            if confidence_override is not None:
+                confidence = confidence_override
+
+            # 7. Position Sizing (new feature)
+            performance_stats = self.performance_tracker.get_statistics(lookback_days=30)
+            position_size_info = self.position_sizer.calculate_position_size(
+                account_balance=account_balance,
+                win_rate=performance_stats.get('win_rate', 0.5),
+                avg_win_pct=performance_stats.get('avg_win_pct', 0.03),
+                avg_loss_pct=performance_stats.get('avg_loss_pct', 0.02),
+                current_volatility=risk_levels.get('volatility', 0.02),
+                confidence=confidence
+            )
+
             logger.info(f"✅ Advanced AI Decision: {action} (Confidence: {confidence*100:.2f}%)")
             logger.info(f"   Reason: {reason}")
+            logger.info(f"   Position Size: ${position_size_info['position_size_usd']:.2f} ({position_size_info['position_pct']:.2f}%)")
 
-            # Build response matching frontend `AdvancedAnalysis` type
+            # Build comprehensive response
             response = {
                 'action': action,
                 'confidence': confidence,
@@ -718,9 +804,11 @@ class AdvancedAITradingEngine:
                 'stop_loss': stop_loss_price,
                 'take_profit': take_profit_price,
                 'risk_reward_ratio': risk_reward,
+                'position_size_usd': position_size_info['position_size_usd'],
+                'position_pct': position_size_info['position_pct'],
                 'modules': {
                     'regime': regime_obj,
-                    'sentiment': sentiment_obj,
+                    'volume': volume_obj,  # Replaces sentiment
                     'risk_levels': risk_obj_final,
                     'reversal': {
                         'is_bullish_reversal': reversal_result.get('is_bullish_reversal', False),
@@ -728,7 +816,10 @@ class AdvancedAITradingEngine:
                         'confidence': reversal_result.get('confidence', 0.0),
                         'patterns_detected': reversal_result.get('patterns_detected', []),
                         'order_book_imbalance': reversal_result.get('order_book_imbalance', 0.0)
-                    }
+                    },
+                    'mtf': mtf_result,
+                    'position_sizing': position_size_info,
+                    'performance': performance_stats
                 }
             }
 
@@ -742,7 +833,6 @@ class AdvancedAITradingEngine:
             # Always return full structure even on error
             current_price = float(ohlcv['close'].iloc[-1]) if len(ohlcv) > 0 else 0.0
             
-            # Safe fallback risk levels
             fallback_risk = {
                 'stop_loss_price': current_price * 0.98 if current_price > 0 else None,
                 'take_profit_price': current_price * 1.04 if current_price > 0 else None,
@@ -761,6 +851,8 @@ class AdvancedAITradingEngine:
                 'stop_loss': fallback_risk['stop_loss_price'],
                 'take_profit': fallback_risk['take_profit_price'],
                 'risk_reward_ratio': fallback_risk['risk_reward_ratio'],
+                'position_size_usd': account_balance * 0.01,
+                'position_pct': 1.0,
                 'modules': {
                     'regime': {
                         'regime': 'UNKNOWN',
@@ -769,12 +861,10 @@ class AdvancedAITradingEngine:
                         'adx': 0.0,
                         'bb_width': 0.0
                     },
-                    'sentiment': {
-                        'score': 0.0,
+                    'volume': {
+                        'score': 0.5,
                         'interpretation': 'NEUTRAL',
-                        'should_trade': False,
-                        'twitter': 0.0,
-                        'news': 0.0
+                        'should_trade': False
                     },
                     'risk_levels': fallback_risk,
                     'reversal': {
