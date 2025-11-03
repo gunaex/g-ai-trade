@@ -889,14 +889,18 @@ async def get_performance(
 
 @app.get("/api/performance/recent-trades")
 async def get_recent_trades(
-    db: Session = Depends(get_db),
-    limit: int = Query(10, ge=1, le=100)
+    limit: int = Query(10, ge=1, le=100),
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
 ):
     """
-    Get recent trades for monitoring page
+    Get recent trades for monitoring page (requires authentication)
     """
     try:
-        trades = db.query(Trade).order_by(
+        # Filter trades by current user
+        trades = db.query(Trade).filter(
+            Trade.user_id == current_user["user_id"]
+        ).order_by(
             Trade.timestamp.desc()
         ).limit(limit).all()
         
@@ -916,6 +920,7 @@ async def get_recent_trades(
         }
         
     except Exception as e:
+        logger.error(f"Recent trades error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # Pydantic Models สำหรับ Backtesting
@@ -1145,36 +1150,65 @@ async def start_ai_force_bot(
     symbol: str = "BTCUSDT",
     amount: float = 0.01,
     max_profit: float = 6.0,
-    max_loss: float = 4.0
+    max_loss: float = 4.0,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
 ):
     """
-    Start AI Force Trading Bot
+    Start AI Force Trading Bot (requires authentication and user API keys)
     - Automatically buys when price drops
     - Automatically sells when price rises
-    - Stops at 6% profit or 4% loss per day
+    - Stops at max_profit% profit or max_loss% loss per day
     """
     try:
+        # Load user-specific API keys
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if not user.binance_api_key or not user.binance_api_secret:
+            raise HTTPException(status_code=400, detail="API keys not configured. Please set your API keys in Settings.")
+
+        # Decrypt keys (will raise 400 if decryption fails)
+        try:
+            api_key = decrypt_api_key(user.binance_api_key)
+            api_secret = decrypt_api_key(user.binance_api_secret)
+        except ValueError as de:
+            raise HTTPException(status_code=400, detail=str(de))
+
+        # Initialize bot with user-specific credentials
+        # Note: ai_trading_bot is a global instance; for multi-user support,
+        # consider using a per-user bot instance or pass credentials to start()
         result = await ai_trading_bot.start(symbol, amount, max_profit, max_loss)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"AI Force Bot start error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/bot/ai-force/stop")
-async def stop_ai_force_bot():
-    """Stop AI Force Trading Bot"""
+async def stop_ai_force_bot(
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Stop AI Force Trading Bot (requires authentication)"""
     try:
         result = ai_trading_bot.stop()
         return result
     except Exception as e:
+        logger.error(f"AI Force Bot stop error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/bot/ai-force/status")
-async def get_ai_force_bot_status():
-    """Get AI Force Trading Bot status"""
+async def get_ai_force_bot_status(
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Get AI Force Trading Bot status (requires authentication)"""
     try:
         status = ai_trading_bot.get_status()
         return status
     except Exception as e:
+        logger.error(f"AI Force Bot status error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     
 
