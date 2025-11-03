@@ -1,8 +1,8 @@
 import axios from 'axios'
 
-// Prefer relative '/api' so Vite dev proxy handles requests and avoids CORS issues.
-// Allow override via VITE_API_URL when explicitly provided.
-const API_BASE: string = (import.meta as any).env?.VITE_API_URL || '/api'
+// Production API URL from Render
+// Development uses relative '/api' via Vite proxy
+const API_BASE: string = (import.meta as any).env?.VITE_API_URL || 'https://g-ai-trade-backend.onrender.com/api'
 
 const api = axios.create({
   baseURL: API_BASE,
