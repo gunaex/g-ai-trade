@@ -5,7 +5,7 @@ import AutoBotConfig from '../components/AutoBotConfig'
 import ActivityLog from '../components/ActivityLog'
 import PerformanceDashboard from '../components/PerformanceDashboard'
 import ConfigDisplay from '../components/ConfigDisplay'
-import apiClient, { AutoBotStatus } from '../lib/api'
+import apiClient, { AutoBotStatus, FeeSummary } from '../lib/api'
 import { useToast } from '../hooks/useToast'
 import '../styles/gods-hand.css'
 
@@ -18,6 +18,7 @@ export default function GodsHand() {
   
   // Separate state for activities that NEVER gets cleared
   const [activities, setActivities] = useState<any[]>([])
+  const [feeSummary, setFeeSummary] = useState<FeeSummary | null>(null)
   
   const isRunning = botStatus?.is_running || false
 
@@ -25,6 +26,9 @@ export default function GodsHand() {
     fetchBotStatus()
     const interval = setInterval(() => {
       fetchBotStatus()
+      if (isRunning) {
+        fetchFeeSummary()
+      }
     }, 2000)
     return () => clearInterval(interval)
   }, [])
@@ -61,6 +65,15 @@ export default function GodsHand() {
       }))
     } catch (error) {
       console.error('Failed to fetch bot status:', error)
+    }
+  }
+
+  const fetchFeeSummary = async () => {
+    try {
+      const response = await apiClient.getFeeSummary()
+      setFeeSummary(response.data)
+    } catch (e) {
+      // ignore when bot not ready
     }
   }
 
@@ -220,6 +233,25 @@ export default function GodsHand() {
             </div>
           )}
           <AIStatusMonitor modules={botStatus.ai_modules} isRunning={isRunning} />
+          {isRunning && botStatus.fee_settings && (
+            <div className="position-card">
+              <h3>🛡️ Fee Protection</h3>
+              <div className="position-details">
+                <div className="detail-item">
+                  <span className="label">Profit Threshold:</span>
+                  <span className="value">{botStatus.fee_settings.min_profit_multiple.toFixed(1)} × fees</span>
+                </div>
+                <div className="detail-item">
+                  <span className="label">Trade Limits:</span>
+                  <span className="value">{botStatus.fee_settings.max_trades_per_hour}/h • {botStatus.fee_settings.max_trades_per_day}/day</span>
+                </div>
+                <div className="detail-item">
+                  <span className="label">Min Hold Time:</span>
+                  <span className="value">{botStatus.fee_settings.min_hold_time_minutes} min</span>
+                </div>
+              </div>
+            </div>
+          )}
           {isRunning && botStatus.current_position && (
             <div className="position-card">
               <h3>🎯 Current Position</h3>
@@ -277,6 +309,34 @@ export default function GodsHand() {
           }} 
           isRunning={isRunning} 
         />
+      )}
+
+      {activeTab === 'performance' && isRunning && (
+        <div className="position-card">
+          <h3>📊 24h Fee Summary</h3>
+          {feeSummary ? (
+            <div className="position-details">
+              <div className="detail-item">
+                <span className="label">Trades (24h):</span>
+                <span className="value">{feeSummary.trades_24h} (B{feeSummary.buy_trades_24h} / S{feeSummary.sell_trades_24h})</span>
+              </div>
+              <div className="detail-item">
+                <span className="label">Fees (24h):</span>
+                <span className="value">${feeSummary.fees_24h_usd.toFixed(2)}</span>
+              </div>
+              <div className="detail-item">
+                <span className="label">Net Profit (24h):</span>
+                <span className="value">${feeSummary.net_profit_24h_usd.toFixed(2)}</span>
+              </div>
+              <div className="detail-item">
+                <span className="label">Fee/Profit Ratio:</span>
+                <span className="value">{feeSummary.fee_to_profit_ratio.toFixed(1)}%</span>
+              </div>
+            </div>
+          ) : (
+            <p>Loading fee summary...</p>
+          )}
+        </div>
       )}
 
       {!isRunning && (

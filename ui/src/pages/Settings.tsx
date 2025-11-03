@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Key, Shield, Bell, Database } from 'lucide-react'
+import { Key, Shield, Bell, Database, Settings as SettingsIcon } from 'lucide-react'
 import api from '../lib/api'
 
 export default function Settings() {
@@ -15,9 +15,22 @@ export default function Settings() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Fee Protection state
+  const [feeSettingsAvailable, setFeeSettingsAvailable] = useState<boolean>(false)
+  const [feeLoading, setFeeLoading] = useState(false)
+  const [feeError, setFeeError] = useState('')
+  const [feeSaved, setFeeSaved] = useState(false)
+  const [makerFee, setMakerFee] = useState<number>(0.001)
+  const [takerFee, setTakerFee] = useState<number>(0.001)
+  const [minProfitMultiple, setMinProfitMultiple] = useState<number>(3.0)
+  const [maxTradesPerHour, setMaxTradesPerHour] = useState<number>(2)
+  const [maxTradesPerDay, setMaxTradesPerDay] = useState<number>(10)
+  const [minHoldTimeMinutes, setMinHoldTimeMinutes] = useState<number>(30)
+
   // Load API key status on mount
   useEffect(() => {
     loadApiKeyStatus()
+    loadFeeSettings()
   }, [])
 
   const loadApiKeyStatus = async () => {
@@ -73,6 +86,51 @@ export default function Settings() {
       setError(err.response?.data?.detail || 'Failed to delete API keys')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadFeeSettings = async () => {
+    setFeeLoading(true)
+    setFeeError('')
+    try {
+      const { data } = await api.getFeeSettings()
+      setMakerFee(Number(data.maker_fee))
+      setTakerFee(Number(data.taker_fee))
+      setMinProfitMultiple(Number(data.min_profit_multiple))
+      setMaxTradesPerHour(Number(data.max_trades_per_hour))
+      setMaxTradesPerDay(Number(data.max_trades_per_day))
+      setMinHoldTimeMinutes(Number(data.min_hold_time_minutes))
+      setFeeSettingsAvailable(true)
+    } catch (err: any) {
+      // If bot not running or no fee protection yet
+      setFeeSettingsAvailable(false)
+      if (err?.response?.data?.detail) {
+        setFeeError(err.response.data.detail)
+      }
+    } finally {
+      setFeeLoading(false)
+    }
+  }
+
+  const handleSaveFeeSettings = async () => {
+    setFeeLoading(true)
+    setFeeError('')
+    setFeeSaved(false)
+    try {
+      await api.updateFeeSettings({
+        maker_fee: makerFee,
+        taker_fee: takerFee,
+        min_profit_multiple: minProfitMultiple,
+        max_trades_per_hour: maxTradesPerHour,
+        max_trades_per_day: maxTradesPerDay,
+        min_hold_time_minutes: minHoldTimeMinutes,
+      })
+      setFeeSaved(true)
+      setTimeout(() => setFeeSaved(false), 2500)
+    } catch (err: any) {
+      setFeeError(err?.response?.data?.detail || 'Failed to save fee settings')
+    } finally {
+      setFeeLoading(false)
     }
   }
 
@@ -236,6 +294,136 @@ export default function Settings() {
             <input type="checkbox" />
             <span>Daily performance summary</span>
           </label>
+        </div>
+      </div>
+
+      {/* Fee Protection (God's Hand) */}
+      <div className="card">
+        <div className="card-header">
+          <h3><SettingsIcon size={20} /> Fee Protection</h3>
+        </div>
+
+        {!feeSettingsAvailable && (
+          <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
+            Start God's Hand to configure fee protection, then refresh this page.
+          </div>
+        )}
+
+        {feeError && (
+          <div className="alert alert-error" style={{ marginBottom: '1rem' }}>
+            {feeError}
+          </div>
+        )}
+
+        <div className="grid-2col">
+          <div className="form-group">
+            <label>Maker Fee (%)</label>
+            <input
+              type="number"
+              value={(makerFee * 100).toFixed(4)}
+              onChange={(e) => setMakerFee(parseFloat(e.target.value) / 100)}
+              min="0"
+              step="0.01"
+              className="input"
+              disabled={!feeSettingsAvailable || feeLoading}
+            />
+            <span className="help-text">Exchange maker fee (e.g., 0.10)</span>
+          </div>
+
+          <div className="form-group">
+            <label>Taker Fee (%)</label>
+            <input
+              type="number"
+              value={(takerFee * 100).toFixed(4)}
+              onChange={(e) => setTakerFee(parseFloat(e.target.value) / 100)}
+              min="0"
+              step="0.01"
+              className="input"
+              disabled={!feeSettingsAvailable || feeLoading}
+            />
+            <span className="help-text">Exchange taker fee (e.g., 0.10)</span>
+          </div>
+        </div>
+
+        <div className="grid-2col">
+          <div className="form-group">
+            <label>Min Profit Multiple (× Fees)</label>
+            <input
+              type="number"
+              value={minProfitMultiple}
+              onChange={(e) => setMinProfitMultiple(parseFloat(e.target.value))}
+              min="1"
+              max="10"
+              step="0.5"
+              className="input"
+              disabled={!feeSettingsAvailable || feeLoading}
+            />
+            <span className="help-text">Profit must exceed fees by this multiple</span>
+          </div>
+
+          <div className="form-group">
+            <label>Minimum Hold Time (minutes)</label>
+            <input
+              type="number"
+              value={minHoldTimeMinutes}
+              onChange={(e) => setMinHoldTimeMinutes(parseInt(e.target.value))}
+              min="0"
+              max="240"
+              step="5"
+              className="input"
+              disabled={!feeSettingsAvailable || feeLoading}
+            />
+            <span className="help-text">Prevents quick flips that waste fees</span>
+          </div>
+        </div>
+
+        <div className="grid-2col">
+          <div className="form-group">
+            <label>Max Trades per Hour</label>
+            <input
+              type="number"
+              value={maxTradesPerHour}
+              onChange={(e) => setMaxTradesPerHour(parseInt(e.target.value))}
+              min="0"
+              max="20"
+              step="1"
+              className="input"
+              disabled={!feeSettingsAvailable || feeLoading}
+            />
+            <span className="help-text">Protects against overtrading (hourly)</span>
+          </div>
+
+          <div className="form-group">
+            <label>Max Trades per Day</label>
+            <input
+              type="number"
+              value={maxTradesPerDay}
+              onChange={(e) => setMaxTradesPerDay(parseInt(e.target.value))}
+              min="0"
+              max="100"
+              step="1"
+              className="input"
+              disabled={!feeSettingsAvailable || feeLoading}
+            />
+            <span className="help-text">Protects against overtrading (daily)</span>
+          </div>
+        </div>
+
+        <div className="button-group">
+          <button 
+            className="btn btn-primary" 
+            onClick={handleSaveFeeSettings}
+            disabled={!feeSettingsAvailable || feeLoading}
+          >
+            {feeLoading ? 'Saving...' : (feeSaved ? '✓ Fee Settings Saved!' : 'Save Fee Settings')}
+          </button>
+          <button 
+            className="btn btn-secondary" 
+            onClick={loadFeeSettings}
+            disabled={feeLoading}
+          >
+            Refresh
+          </button>
         </div>
       </div>
 
