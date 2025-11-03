@@ -30,7 +30,9 @@ from app.security.auth import (
     create_refresh_token,
     verify_token,
     get_current_user,
-    get_current_active_user
+    get_current_active_user,
+    encrypt_api_key,
+    decrypt_api_key
 )
 from datetime import timedelta
 
@@ -138,6 +140,10 @@ class TokenResponse(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
+
+class ApiKeysRequest(BaseModel):
+    binance_api_key: str
+    binance_api_secret: str
 
 # ==================== ROUTES ====================
 
@@ -338,6 +344,116 @@ async def get_current_user_info(current_user: dict = Depends(get_current_active_
         raise
     except Exception as e:
         logger.error(f"Get user error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/api-keys")
+async def save_api_keys(
+    keys: ApiKeysRequest,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Save encrypted API keys for the current user
+    
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Encrypt and save API keys
+        user.binance_api_key = encrypt_api_key(keys.binance_api_key)
+        user.binance_api_secret = encrypt_api_key(keys.binance_api_secret)
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "API keys saved and encrypted successfully",
+            "has_api_keys": True
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Save API keys error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/auth/api-keys/status")
+async def get_api_keys_status(
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Check if user has API keys configured
+    
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        has_keys = bool(user.binance_api_key and user.binance_api_secret)
+        
+        # Return masked keys if they exist
+        api_key_preview = None
+        if user.binance_api_key:
+            try:
+                decrypted = decrypt_api_key(user.binance_api_key)
+                # Show first 8 and last 4 characters
+                if len(decrypted) > 12:
+                    api_key_preview = f"{decrypted[:8]}...{decrypted[-4:]}"
+            except:
+                pass
+        
+        return {
+            "has_api_keys": has_keys,
+            "api_key_preview": api_key_preview
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get API keys status error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/auth/api-keys")
+async def delete_api_keys(
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete user's API keys
+    
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user.binance_api_key = None
+        user.binance_api_secret = None
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "API keys deleted successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete API keys error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -7,7 +7,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from cryptography.fernet import Fernet
 import os
+import base64
 
 # JWT Configuration
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
@@ -15,11 +17,40 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
+# Encryption for API keys
+ENCRYPTION_KEY = os.getenv("SECRET_KEY", Fernet.generate_key().decode())
+# Ensure key is proper length for Fernet
+if len(ENCRYPTION_KEY) < 32:
+    ENCRYPTION_KEY = base64.urlsafe_b64encode(ENCRYPTION_KEY.ljust(32)[:32].encode()).decode()
+cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
+
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # HTTP Bearer token scheme
 security = HTTPBearer()
+
+
+def encrypt_api_key(api_key: str) -> str:
+    """Encrypt API key for secure storage"""
+    if not api_key:
+        return ""
+    try:
+        encrypted = cipher_suite.encrypt(api_key.encode())
+        return encrypted.decode()
+    except Exception as e:
+        raise ValueError(f"Failed to encrypt API key: {e}")
+
+
+def decrypt_api_key(encrypted_key: str) -> str:
+    """Decrypt API key from storage"""
+    if not encrypted_key:
+        return ""
+    try:
+        decrypted = cipher_suite.decrypt(encrypted_key.encode())
+        return decrypted.decode()
+    except Exception as e:
+        raise ValueError(f"Failed to decrypt API key: {e}")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

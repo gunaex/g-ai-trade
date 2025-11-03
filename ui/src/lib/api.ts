@@ -421,6 +421,16 @@ export const apiClient = {
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('user')
   },
+
+  // API Key Management
+  saveApiKeys: (binanceApiKey: string, binanceApiSecret: string) =>
+    api.post('/auth/api-keys', { binance_api_key: binanceApiKey, binance_api_secret: binanceApiSecret }),
+
+  getApiKeysStatus: () =>
+    api.get<{ has_api_keys: boolean; api_key_preview: string | null }>('/auth/api-keys/status'),
+
+  deleteApiKeys: () =>
+    api.delete('/auth/api-keys'),
 }
 
 export type ApiClient = typeof apiClient

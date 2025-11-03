@@ -12,6 +12,11 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
+    
+    # User-specific API credentials (encrypted)
+    binance_api_key = Column(String, nullable=True)
+    binance_api_secret = Column(String, nullable=True)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
     
@@ -23,6 +28,7 @@ class User(Base):
             'email': self.email,
             'is_active': self.is_active,
             'is_admin': self.is_admin,
+            'has_api_keys': bool(self.binance_api_key and self.binance_api_secret),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None
         }

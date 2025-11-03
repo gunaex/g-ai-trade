@@ -1,16 +1,83 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Key, Shield, Bell, Database } from 'lucide-react'
+import api from '../lib/api'
 
 export default function Settings() {
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
+  const [hasApiKeys, setHasApiKeys] = useState(false)
+  const [apiKeyPreview, setApiKeyPreview] = useState('')
   const [maxDrawdown, setMaxDrawdown] = useState(5)
   const [positionSize, setPositionSize] = useState(2)
   const [correlationLimit, setCorrelationLimit] = useState(0.8)
   const [saved, setSaved] = useState(false)
+  const [apiKeySaved, setApiKeySaved] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  // Load API key status on mount
+  useEffect(() => {
+    loadApiKeyStatus()
+  }, [])
+
+  const loadApiKeyStatus = async () => {
+    try {
+      const { data } = await api.getApiKeysStatus()
+      setHasApiKeys(data.has_api_keys)
+      setApiKeyPreview(data.api_key_preview || '')
+    } catch (err: any) {
+      console.error('Failed to load API key status:', err)
+    }
+  }
+
+  const handleSaveApiKeys = async () => {
+    if (!apiKey.trim() || !apiSecret.trim()) {
+      setError('Both API key and secret are required')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      await api.saveApiKeys(apiKey, apiSecret)
+      
+      setApiKeySaved(true)
+      setApiKey('')
+      setApiSecret('')
+      await loadApiKeyStatus()
+      
+      setTimeout(() => setApiKeySaved(false), 3000)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to save API keys')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeleteApiKeys = async () => {
+    if (!confirm('Are you sure you want to delete your API keys? This cannot be undone.')) {
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      await api.deleteApiKeys()
+      setHasApiKeys(false)
+      setApiKeyPreview('')
+      setApiKeySaved(true)
+      setTimeout(() => setApiKeySaved(false), 3000)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to delete API keys')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSave = () => {
-    // In production, encrypt and save to backend
+    // Save other settings to localStorage
     localStorage.setItem('settings', JSON.stringify({
       maxDrawdown,
       positionSize,
@@ -37,14 +104,28 @@ export default function Settings() {
           <span>API keys are encrypted using Fernet encryption before storage</span>
         </div>
 
+        {error && (
+          <div className="alert alert-error" style={{ marginBottom: '1rem' }}>
+            {error}
+          </div>
+        )}
+
+        {hasApiKeys && (
+          <div className="alert alert-success" style={{ marginBottom: '1rem' }}>
+            <Shield size={20} />
+            <span>API Key configured: {apiKeyPreview}</span>
+          </div>
+        )}
+
         <div className="form-group">
           <label>Binance API Key</label>
           <input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Enter your Binance API key"
+            placeholder={hasApiKeys ? "Enter new API key to update" : "Enter your Binance API key"}
             className="input"
+            disabled={loading}
           />
         </div>
 
@@ -54,14 +135,31 @@ export default function Settings() {
             type="password"
             value={apiSecret}
             onChange={(e) => setApiSecret(e.target.value)}
-            placeholder="Enter your Binance API secret"
+            placeholder={hasApiKeys ? "Enter new API secret to update" : "Enter your Binance API secret"}
             className="input"
+            disabled={loading}
           />
         </div>
 
-        <button className="btn btn-primary">
-          Save & Encrypt API Keys
-        </button>
+        <div className="button-group">
+          <button 
+            className="btn btn-primary" 
+            onClick={handleSaveApiKeys}
+            disabled={loading || (!apiKey && !apiSecret)}
+          >
+            {loading ? 'Saving...' : (apiKeySaved ? '✓ API Keys Saved!' : (hasApiKeys ? 'Update API Keys' : 'Save & Encrypt API Keys'))}
+          </button>
+          
+          {hasApiKeys && (
+            <button 
+              className="btn btn-error" 
+              onClick={handleDeleteApiKeys}
+              disabled={loading}
+            >
+              Delete API Keys
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Risk Management */}
