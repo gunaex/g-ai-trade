@@ -229,15 +229,53 @@ class AdaptiveStopLoss:
             else:  # SELL
                 min_stop = self.entry_price * 1.03
             
-            # Choose best stop (tightest for BUY, loosest for SELL that still protects)
+            # Choose best stop (must be protective: below entry for BUY, above entry for SELL)
+            new_stop = None
             if self.side == 'BUY':
-                # For BUY: want highest stop (closest to price, tightest)
-                self.current_stop = max(atr_stop, swing_stop, min_stop)
-                method = 'ATR' if self.current_stop == atr_stop else 'SWING' if self.current_stop == swing_stop else 'MIN'
+                # For BUY: want stop BELOW entry price, choose the one closest to current price but still protective
+                # Filter out any stops above entry price (those are invalid)
+                valid_stops = [s for s in [atr_stop, swing_stop, min_stop] if s < self.entry_price]
+                if valid_stops:
+                    new_stop = max(valid_stops)  # Highest valid stop (tightest but still protective)
+                    if new_stop == atr_stop:
+                        method = 'ATR'
+                    elif new_stop == swing_stop:
+                        method = 'SWING'
+                    else:
+                        method = 'MIN'
+                else:
+                    # Fallback: if all stops are above entry (shouldn't happen), use min_stop
+                    new_stop = min_stop
+                    method = 'MIN_FALLBACK'
+                
+                # TRAILING LOGIC: Stop should only move UP for BUY, never down
+                if self.current_stop is not None:
+                    self.current_stop = max(self.current_stop, new_stop)
+                else:
+                    self.current_stop = new_stop
+                    
             else:  # SELL
-                # For SELL: want lowest stop (closest to price, tightest)
-                self.current_stop = min(atr_stop, swing_stop, min_stop)
-                method = 'ATR' if self.current_stop == atr_stop else 'SWING' if self.current_stop == swing_stop else 'MIN'
+                # For SELL: want stop ABOVE entry price, choose the one closest to current price but still protective
+                # Filter out any stops below entry price (those are invalid)
+                valid_stops = [s for s in [atr_stop, swing_stop, min_stop] if s > self.entry_price]
+                if valid_stops:
+                    new_stop = min(valid_stops)  # Lowest valid stop (tightest but still protective)
+                    if new_stop == atr_stop:
+                        method = 'ATR'
+                    elif new_stop == swing_stop:
+                        method = 'SWING'
+                    else:
+                        method = 'MIN'
+                else:
+                    # Fallback: if all stops are below entry (shouldn't happen), use min_stop
+                    new_stop = min_stop
+                    method = 'MIN_FALLBACK'
+                
+                # TRAILING LOGIC: Stop should only move DOWN for SELL, never up
+                if self.current_stop is not None:
+                    self.current_stop = min(self.current_stop, new_stop)
+                else:
+                    self.current_stop = new_stop
             
             # Calculate stop distance
             if self.side == 'BUY':

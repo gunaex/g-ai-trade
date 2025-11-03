@@ -674,12 +674,16 @@ class AdvancedAITradingEngine:
                     'stop_loss': risk_obj['stop_loss_price'],
                     'take_profit': risk_obj['take_profit_price'],
                     'risk_reward_ratio': _f(risk_levels_early.get('risk_reward_ratio')),
+                    'position_size_usd': 0.0,
+                    'position_pct': 0.0,
                     'modules': {
                         'regime': regime_obj,
                         'volume': volume_obj,
                         'risk_levels': risk_obj,
                         'reversal': reversal_empty,
-                        'mtf': mtf_result
+                        'mtf': mtf_result,
+                        'position_sizing': {'position_size_usd': 0.0, 'position_pct': 0.0},
+                        'performance': self.performance_tracker.get_statistics(lookback_days=30)
                     }
                 }
 
@@ -709,18 +713,16 @@ class AdvancedAITradingEngine:
                         'stop_loss': risk_obj['stop_loss_price'],
                         'take_profit': risk_obj['take_profit_price'],
                         'risk_reward_ratio': _f(risk_levels_early.get('risk_reward_ratio')),
+                        'position_size_usd': 0.0,
+                        'position_pct': 0.0,
                         'modules': {
                             'regime': regime_obj,
                             'volume': volume_obj,
                             'risk_levels': risk_obj,
-                            'reversal': {
-                                'is_bullish_reversal': reversal_result.get('is_bullish_reversal', False),
-                                'is_bearish_reversal': reversal_result.get('is_bearish_reversal', False),
-                                'confidence': reversal_result.get('confidence', 0.0),
-                                'patterns_detected': reversal_result.get('patterns_detected', []),
-                                'order_book_imbalance': reversal_result.get('order_book_imbalance', 0.0)
-                            },
-                            'mtf': mtf_result
+                            'reversal': reversal_empty,
+                            'mtf': mtf_result,
+                            'position_sizing': {'position_size_usd': 0.0, 'position_pct': 0.0},
+                            'performance': self.performance_tracker.get_statistics(lookback_days=30)
                         }
                     }
 
