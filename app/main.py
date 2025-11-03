@@ -14,13 +14,25 @@ import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 # SQLAlchemy related imports
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 from app.db import engine, Base, get_db, SessionLocal
-from app.models import Trade, GridBot, DCABot, BotConfig
+from app.models import Trade, GridBot, DCABot, BotConfig, User
+
+# Authentication imports
+from app.security.auth import (
+    get_password_hash, 
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    verify_token,
+    get_current_user,
+    get_current_active_user
+)
+from datetime import timedelta
 
 # Application specific imports
 from app.ai.decision import AIDecisionEngine
@@ -108,6 +120,25 @@ class DCABotRequest(BaseModel):
     interval_days: int = 7
     total_periods: int = 12
 
+# Authentication Models
+class UserRegister(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user: dict
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
 # ==================== ROUTES ====================
 
 @app.get("/")
@@ -125,6 +156,192 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
         "version": "1.0.0"
     }
+
+# ==================== AUTHENTICATION ENDPOINTS ====================
+
+@app.post("/api/auth/register", response_model=TokenResponse)
+async def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    """
+    Register a new user
+    
+    Returns JWT access token and refresh token
+    """
+    try:
+        # Check if username already exists
+        existing_user = db.query(User).filter(User.username == user_data.username).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Username already registered")
+        
+        # Check if email already exists
+        existing_email = db.query(User).filter(User.email == user_data.email).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        # Create new user
+        hashed_password = get_password_hash(user_data.password)
+        new_user = User(
+            username=user_data.username,
+            email=user_data.email,
+            hashed_password=hashed_password,
+            is_active=True,
+            is_admin=False,
+            created_at=datetime.utcnow()
+        )
+        
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        # Create tokens
+        access_token = create_access_token(
+            data={"sub": new_user.username, "user_id": new_user.id}
+        )
+        refresh_token = create_refresh_token(
+            data={"sub": new_user.username, "user_id": new_user.id}
+        )
+        
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=new_user.to_dict()
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Registration error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    """
+    Login user and return JWT tokens
+    
+    Accepts username and password, returns access token and refresh token
+    """
+    try:
+        # Find user by username
+        user = db.query(User).filter(User.username == credentials.username).first()
+        
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Incorrect username or password"
+            )
+        
+        # Verify password
+        if not verify_password(credentials.password, user.hashed_password):
+            raise HTTPException(
+                status_code=401,
+                detail="Incorrect username or password"
+            )
+        
+        # Check if user is active
+        if not user.is_active:
+            raise HTTPException(
+                status_code=403,
+                detail="User account is disabled"
+            )
+        
+        # Update last login
+        user.last_login = datetime.utcnow()
+        db.commit()
+        
+        # Create tokens
+        access_token = create_access_token(
+            data={"sub": user.username, "user_id": user.id}
+        )
+        refresh_token = create_refresh_token(
+            data={"sub": user.username, "user_id": user.id}
+        )
+        
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=user.to_dict()
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/refresh", response_model=TokenResponse)
+async def refresh_token(token_data: RefreshTokenRequest, db: Session = Depends(get_db)):
+    """
+    Refresh access token using refresh token
+    
+    Returns new access token and refresh token
+    """
+    try:
+        # Verify refresh token
+        payload = verify_token(token_data.refresh_token, token_type="refresh")
+        
+        username = payload.get("sub")
+        user_id = payload.get("user_id")
+        
+        if not username or not user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid refresh token"
+            )
+        
+        # Get user from database
+        user = db.query(User).filter(User.id == user_id).first()
+        
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=401,
+                detail="User not found or inactive"
+            )
+        
+        # Create new tokens
+        access_token = create_access_token(
+            data={"sub": user.username, "user_id": user.id}
+        )
+        new_refresh_token = create_refresh_token(
+            data={"sub": user.username, "user_id": user.id}
+        )
+        
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=new_refresh_token,
+            user=user.to_dict()
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token refresh error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/auth/me")
+async def get_current_user_info(current_user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """
+    Get current authenticated user information
+    
+    Requires: Bearer token in Authorization header
+    """
+    try:
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return user.to_dict()
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get user error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== END AUTHENTICATION ENDPOINTS ====================
 
 @app.get("/api/server-info")
 async def get_server_info():
@@ -178,10 +395,11 @@ async def get_ai_decision(
 @app.post("/api/trade")
 async def execute_trade(
     trade_request: TradeRequest,
+    current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Execute manual trade
+    Execute manual trade (PROTECTED - requires authentication)
     Uses BINANCE TH API v1.0.0 for trading operations
     """
     try:
@@ -250,10 +468,11 @@ async def execute_trade(
 async def start_grid_bot(
     symbol: str,
     config: GridBotRequest,
+    current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Start Grid Trading Bot
+    Start Grid Trading Bot (PROTECTED - requires authentication)
     """
     try:
         grid_bot = GridBot(
@@ -292,10 +511,11 @@ async def start_grid_bot(
 async def start_dca_bot(
     symbol: str,
     config: DCABotRequest,
+    current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Start DCA (Dollar Cost Averaging) Bot
+    Start DCA (Dollar Cost Averaging) Bot (PROTECTED - requires authentication)
     """
     try:
         dca_bot = DCABot(
@@ -1062,9 +1282,13 @@ async def get_advanced_analysis_debug(
 # ============================================================================
 
 @app.post("/api/auto-bot/create")
-async def create_auto_bot(config: dict, db: Session = Depends(get_db)):
+async def create_auto_bot(
+    config: dict,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
     """
-    สร้างการตั้งค่า Auto Bot
+    สร้างการตั้งค่า Auto Bot (PROTECTED - requires authentication)
     
     Body:
     {
@@ -1116,10 +1340,11 @@ async def get_auto_bot_config(config_id: int, db: Session = Depends(get_db)):
 @app.post("/api/auto-bot/start/{config_id}")
 async def start_auto_bot(
     config_id: int,
+    current_user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    เริ่มการทำงาน Auto Bot (Background Service)
+    เริ่มการทำงาน Auto Bot (Background Service) (PROTECTED - requires authentication)
     """
     global auto_trader_instance
     
@@ -1165,8 +1390,12 @@ async def start_auto_bot(
 
 
 @app.post("/api/auto-bot/stop/{config_id}")
-async def stop_auto_bot(config_id: int, db: Session = Depends(get_db)):
-    """หยุดการทำงาน Auto Bot"""
+async def stop_auto_bot(
+    config_id: int,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """หยุดการทำงาน Auto Bot (PROTECTED - requires authentication)"""
     global auto_trader_instance
     
     try:

@@ -4,12 +4,13 @@ Full-Stack AI-Powered Crypto Trading System
 
 ## Features
 
+- **🔐 JWT Authentication**: Secure user authentication with token-based access control
 - **AI Decision Engine**: 4D analysis (Market, Fundamental, Sentiment, On-Chain)
 - **Grid Trading Bot**: Automated grid trading with dynamic ATR
 - **DCA Bot**: Dollar-cost averaging with customizable intervals
 - **Real-time Market Data**: Live prices from Binance
 - **Risk Management**: Max drawdown, correlation filters, position sizing
-- **Security**: Encrypted API keys, audit logging
+- **Security**: Encrypted API keys, JWT authentication, password hashing, audit logging
 
 ## Tech Stack
 
@@ -100,3 +101,59 @@ Select XRP/USDT - Your current holding
 
 The AI is already working and updating automatically! It's showing HOLD because current market conditions for BTC are neutral.
 -------------------------------------------------------------------------
+
+## 🔒 Security
+
+### Authentication
+
+The system uses **JWT (JSON Web Token)** authentication to protect trading endpoints:
+
+- **Access tokens**: Expire after 30 minutes (automatic refresh)
+- **Refresh tokens**: Expire after 7 days
+- **Protected endpoints**: All trading and bot management operations require authentication
+
+### Setup Authentication
+
+1. **Install dependencies**:
+```bash
+pip install python-jose[cryptography] passlib[bcrypt] python-multipart
+```
+
+Or use the automated setup script:
+```bash
+setup-jwt-auth.bat  # Windows
+```
+
+2. **Generate JWT secret key**:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+3. **Add to .env**:
+```bash
+JWT_SECRET_KEY=your-generated-secret-key-here
+```
+
+4. **Create first user**:
+```bash
+curl -X POST http://localhost:8000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","email":"admin@example.com","password":"SecurePassword123"}'
+```
+
+### Protected Endpoints
+
+The following endpoints require authentication (Bearer token):
+- POST `/api/trade` - Execute trades
+- POST `/api/grid-bot/{symbol}` - Start grid bot
+- POST `/api/dca-bot/{symbol}` - Start DCA bot
+- POST `/api/auto-bot/*` - Auto bot management
+
+### Documentation
+
+For detailed information about authentication and security:
+- **JWT_AUTHENTICATION.md** - Complete JWT implementation guide
+- **SECURITY.md** - Security best practices and guidelines
+- **JWT_IMPLEMENTATION_SUMMARY.md** - Quick reference for developers
+
+---

@@ -12,6 +12,61 @@ const api = axios.create({
   },
 })
 
+// Add request interceptor to include auth token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('access_token')
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+// Add response interceptor to handle token refresh
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config
+
+    // If 401 and we haven't retried yet, try to refresh token
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+
+      const refreshToken = localStorage.getItem('refresh_token')
+      if (refreshToken) {
+        try {
+          const response = await axios.post(`${API_BASE}/auth/refresh`, {
+            refresh_token: refreshToken,
+          })
+
+          const data = response.data as { access_token: string; refresh_token: string }
+          const { access_token, refresh_token: newRefreshToken } = data
+          
+          localStorage.setItem('access_token', access_token)
+          localStorage.setItem('refresh_token', newRefreshToken)
+
+          // Retry original request with new token
+          if (originalRequest.headers) {
+            originalRequest.headers.Authorization = `Bearer ${access_token}`
+          }
+          return api(originalRequest)
+        } catch (refreshError) {
+          // Refresh failed, clear tokens and redirect to login
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
+          localStorage.removeItem('user')
+          window.location.href = '/login'
+          return Promise.reject(refreshError)
+        }
+      }
+    }
+
+    return Promise.reject(error)
+  }
+)
+
 export interface AIDecision {
   action: 'BUY' | 'SELL' | 'HOLD' | 'HALT'
   principle: string
@@ -347,6 +402,25 @@ export const apiClient = {
 
   getAutoBotPerformance: () =>
     api.get<AutoBotPerformance>('/auto-bot/performance'),
+
+  // Authentication
+  register: (username: string, email: string, password: string) =>
+    api.post('/auth/register', { username, email, password }),
+
+  login: (username: string, password: string) =>
+    api.post('/auth/login', { username, password }),
+
+  refreshToken: (refreshToken: string) =>
+    api.post('/auth/refresh', { refresh_token: refreshToken }),
+
+  getCurrentUser: () =>
+    api.get('/auth/me'),
+
+  logout: () => {
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
+    localStorage.removeItem('user')
+  },
 }
 
 export type ApiClient = typeof apiClient
