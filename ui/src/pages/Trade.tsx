@@ -100,8 +100,12 @@ export default function Trade() {
           setTotalPortfolioValue(0)
           return
         }
-      } catch {
-        // If status endpoint fails (e.g., not authenticated), proceed and let error handler clear state
+      } catch (e: any) {
+        // If status endpoint fails (e.g., not authenticated 401),
+        // clear state and stop to avoid spamming /account/balance with 400s
+        setBalances({})
+        setTotalPortfolioValue(0)
+        return
       }
       const response = await apiClient.getAccountBalance()
       const data = response.data as any
@@ -125,8 +129,18 @@ export default function Trade() {
         setBalances({})
         setTotalPortfolioValue(0)
       }
-    } catch (err) {
-      console.error('Failed to fetch balances:', err)
+    } catch (err: any) {
+      // Show a clearer hint when API keys are missing
+      const status = err?.response?.status
+      const detail = err?.response?.data?.detail
+      if (status === 400 && typeof detail === 'string' && detail.toLowerCase().includes('api keys')) {
+        console.warn('Balances unavailable: API keys not configured for this account.')
+      } else if (status === 401) {
+        // Token invalid/expired. Interceptor will attempt refresh/redirect.
+        console.warn('Unauthorized while fetching balances. Waiting for re-auth...')
+      } else {
+        console.error('Failed to fetch balances:', err)
+      }
       setBalances({})
       setTotalPortfolioValue(0)
     }
