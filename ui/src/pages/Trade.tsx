@@ -92,28 +92,22 @@ export default function Trade() {
 
   const fetchBalances = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/account/balance', {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      })
-      
-      if (!response.ok) throw new Error('Failed to fetch balances')
-      
-      const data = await response.json()
+      const response = await apiClient.getAccountBalance()
+      const data = response.data as any
       const balanceMap: Record<string, number> = {}
-      
+
       if (data.balances && Array.isArray(data.balances)) {
         data.balances.forEach((balance: any) => {
           const asset = balance.asset
           const free = parseFloat(balance.free || 0)
           const locked = parseFloat(balance.locked || 0)
           const total = free + locked
-          
+
           if (total > 0) {
             balanceMap[asset] = total
           }
         })
-        
+
         setBalances(balanceMap)
         calculateTotalValue(balanceMap)
       } else {
@@ -147,14 +141,9 @@ export default function Trade() {
           return marketData.price
         }
         
-        // Fetch price from backend
-        const response = await fetch(`http://localhost:8000/api/market/${crypto}USDT?currency=USD`)
-        if (!response.ok) {
-          console.warn(`Failed to fetch price for ${crypto}`)
-          return 0
-        }
-        const data = await response.json()
-        return data.price || 0
+        // Fetch price from backend via api client
+        const res = await apiClient.getMarketData(`${crypto}USDT`, 'USD')
+        return res.data?.price || 0
       } catch (error) {
         console.warn(`Error fetching price for ${crypto}:`, error)
         return 0
