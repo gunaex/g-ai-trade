@@ -16,6 +16,7 @@ from app.models import Trade, BotConfig
 from app.binance_client import get_binance_th_client, get_market_data_client
 from app.ai.advanced_modules import AdvancedAITradingEngine
 from app.backtesting.onchain_filter import OnChainFilter, MockOnChainProvider
+from app.ai.fee_protection import FeeProtectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,16 @@ class AutoTrader:
         self.market_client = get_market_data_client()
         self.ai_engine = AdvancedAITradingEngine(market_client=self.market_client)  # Pass market_client for advanced features
         self.onchain_filter = OnChainFilter(provider=MockOnChainProvider())
+        
+        # Fee Protection Manager
+        self.fee_protection = FeeProtectionManager(
+            maker_fee=0.001,  # 0.1% Binance maker fee
+            taker_fee=0.001,  # 0.1% Binance taker fee
+            min_profit_multiple=3.0,  # Profit must be 3x total fees
+            max_trades_per_hour=2,  # Max 2 trades/hour
+            max_trades_per_day=10,  # Max 10 trades/day
+            min_hold_time_minutes=30  # Must hold for 30+ minutes
+        )
         
         # State
         self.is_running = False
@@ -259,23 +270,52 @@ class AutoTrader:
         tp_pct = analysis.get('take_profit_percent', 1.0)
         sl_pct = analysis.get('stop_loss_percent', 0.5)
         
-        # Take Profit
+        # Calculate position size for fee check
+        quantity = self.current_position['quantity']
+        position_size_usd = entry_price * quantity
+        
+        # Get breakeven info
+        breakeven_info = self.fee_protection.get_breakeven_price(entry_price, position_size_usd)
+        logger.info(f"💰 Breakeven: ${breakeven_info['breakeven_price']:.2f} ({breakeven_info['breakeven_pct']:.2f}%)")
+        logger.info(f"💰 Min Profitable: ${breakeven_info['min_profitable_price']:.2f} ({breakeven_info['min_profitable_pct']:.2f}%)")
+        
+        # Take Profit - check fee threshold
         if pnl_pct >= tp_pct:
             logger.info(f"🎯 Take Profit Triggered: {pnl_pct:.2f}% >= {tp_pct:.2f}%")
-            await self._close_position(current_price, "Take Profit")
-            return
+            
+            # Check if profit exceeds fee threshold
+            can_close, reason = self.fee_protection.can_close_position(
+                entry_price, current_price, position_size_usd, force_close=False
+            )
+            
+            if can_close:
+                await self._close_position(current_price, "Take Profit")
+                return
+            else:
+                logger.warning(f"⚠️  TP triggered but {reason}")
+                self._log_activity(f"⚠️  TP triggered but blocked: {reason}", "warning")
         
-        # Stop Loss
+        # Stop Loss - force close regardless of fees
         if pnl_pct <= -sl_pct:
             logger.info(f"🛑 Stop Loss Triggered: {pnl_pct:.2f}% <= -{sl_pct:.2f}%")
-            await self._close_position(current_price, "Stop Loss")
+            await self._close_position(current_price, "Stop Loss", force_close=True)
             return
         
-        # AI SELL Signal
+        # AI SELL Signal - check fee threshold
         if analysis.get('action') == 'SELL' and analysis.get('confidence', 0) > 0.7:
             logger.info(f"📉 AI SELL Signal (Confidence: {analysis['confidence']*100:.1f}%)")
-            await self._close_position(current_price, "AI Signal")
-            return
+            
+            # Check if profit exceeds fee threshold
+            can_close, reason = self.fee_protection.can_close_position(
+                entry_price, current_price, position_size_usd, force_close=False
+            )
+            
+            if can_close:
+                await self._close_position(current_price, "AI Signal")
+                return
+            else:
+                logger.warning(f"⚠️  AI SELL signal but {reason}")
+                self._log_activity(f"⚠️  AI SELL blocked: {reason}", "warning")
         
         logger.info(f"✅ Position Hold (waiting for TP/SL)")
     
@@ -325,7 +365,14 @@ class AutoTrader:
             logger.info(f"🤖 AI Decision: {action} (Confidence: {confidence*100:.1f}%)")
             logger.info(f"   Reason: {reason}")
             
-            # 3. Execute BUY
+            # 3. Check Trade Frequency Limits
+            can_trade, freq_reason = self.fee_protection.can_open_position()
+            if not can_trade:
+                logger.warning(f"🚫 Trade Frequency Limit: {freq_reason}")
+                self._log_activity(f"🚫 Entry blocked: {freq_reason}", "warning")
+                return
+            
+            # 4. Execute BUY
             if action == 'BUY' and confidence >= self.config.min_confidence:
                 await self._open_position(current_price, analysis)
             else:
@@ -374,6 +421,15 @@ class AutoTrader:
             self.db.add(trade)
             self.db.commit()
             
+            # Record trade in fee protection
+            position_size_usd = current_price * quantity
+            self.fee_protection.record_trade('BUY', current_price, position_size_usd)
+            
+            # Show breakeven info
+            breakeven_info = self.fee_protection.get_breakeven_price(current_price, position_size_usd)
+            logger.info(f"💰 Breakeven Price: ${breakeven_info['breakeven_price']:.2f} (+{breakeven_info['breakeven_pct']:.2f}%)")
+            logger.info(f"💰 Min Profitable Price: ${breakeven_info['min_profitable_price']:.2f} (+{breakeven_info['min_profitable_pct']:.2f}%)")
+            
             logger.info(f"✅ Position Opened: Trade ID {trade.id}")
             self._log_activity(
                 "✅ Position Opened",
@@ -381,7 +437,8 @@ class AutoTrader:
                 {
                     "trade_id": trade.id,
                     "entry_price": current_price,
-                    "quantity": round(quantity, 6)
+                    "quantity": round(quantity, 6),
+                    "breakeven_price": round(breakeven_info['breakeven_price'], 2)
                 }
             )
             
@@ -398,9 +455,14 @@ class AutoTrader:
             logger.error(f"Failed to open position: {e}")
             self._log_activity(f"Failed to open position: {e}", "error")
     
-    async def _close_position(self, current_price: float, reason: str):
+    async def _close_position(self, current_price: float, reason: str, force_close: bool = False):
         """
         ปิด Position (SELL)
+        
+        Args:
+            current_price: Current price
+            reason: Reason for closing (TP/SL/AI Signal)
+            force_close: Force close regardless of fees (for stop loss)
         """
         try:
             if not self.current_position:
@@ -411,9 +473,19 @@ class AutoTrader:
             
             logger.info(f"🔄 Closing Position: {quantity:.6f} {self.config.symbol} @ ${current_price:.2f}")
             
-            # Calculate P/L
+            # Calculate P/L (gross)
             pnl = (current_price - entry_price) * quantity
             pnl_pct = (current_price - entry_price) / entry_price * 100
+            
+            # Calculate fees and net profit
+            position_size_usd = entry_price * quantity
+            profit_analysis = self.fee_protection.calculate_net_profit(
+                entry_price, current_price, position_size_usd
+            )
+            
+            logger.info(f"💵 Gross Profit: ${profit_analysis['gross_profit_usd']:.2f} ({profit_analysis['gross_profit_pct']:.2f}%)")
+            logger.info(f"💸 Trading Fees: ${profit_analysis['total_fee_usd']:.2f} ({profit_analysis['fee_pct']:.2f}%)")
+            logger.info(f"💰 Net Profit: ${profit_analysis['net_profit_usd']:.2f} ({profit_analysis['net_profit_pct']:.2f}%)")
             
             self._log_activity(
                 "🔄 Closing Position",
@@ -421,8 +493,10 @@ class AutoTrader:
                 {
                     "reason": reason,
                     "exit_price": current_price,
-                    "pnl": round(pnl, 2),
-                    "pnl_pct": round(pnl_pct, 2)
+                    "gross_pnl": round(pnl, 2),
+                    "fees": round(profit_analysis['total_fee_usd'], 2),
+                    "net_pnl": round(profit_analysis['net_profit_usd'], 2),
+                    "net_pnl_pct": round(profit_analysis['net_profit_pct'], 2)
                 }
             )
             
@@ -443,13 +517,22 @@ class AutoTrader:
                 trade.filled_price = current_price
                 self.db.commit()
             
-            logger.info(f"✅ Position Closed: P/L = ${pnl:+.2f} ({pnl_pct:+.2f}%)")
+            # Record trade in fee protection
+            self.fee_protection.record_trade('SELL', current_price, position_size_usd, profit_analysis['net_profit_usd'])
+            
+            # Get fee summary
+            fee_summary = self.fee_protection.get_fee_summary()
+            logger.info(f"📊 24h Summary: {fee_summary['trades_24h']} trades, ${fee_summary['fees_24h_usd']:.2f} fees, ${fee_summary['net_profit_24h_usd']:.2f} net profit")
+            
+            logger.info(f"✅ Position Closed: Net P/L = ${profit_analysis['net_profit_usd']:+.2f} ({profit_analysis['net_profit_pct']:+.2f}%)")
             self._log_activity(
                 "💰 Position Closed",
-                "success" if pnl > 0 else "warning",
+                "success" if profit_analysis['net_profit_usd'] > 0 else "warning",
                 {
-                    "pnl": round(pnl, 2),
-                    "pnl_pct": round(pnl_pct, 2),
+                    "gross_pnl": round(pnl, 2),
+                    "fees": round(profit_analysis['total_fee_usd'], 2),
+                    "net_pnl": round(profit_analysis['net_profit_usd'], 2),
+                    "net_pnl_pct": round(profit_analysis['net_profit_pct'], 2),
                     "reason": reason
                 }
             )
@@ -459,7 +542,9 @@ class AutoTrader:
                 f"💰 SELL EXECUTED\n"
                 f"Symbol: {self.config.symbol}\n"
                 f"Exit Price: ${current_price:.2f}\n"
-                f"P/L: ${pnl:+.2f} ({pnl_pct:+.2f}%)\n"
+                f"Gross P/L: ${pnl:+.2f} ({pnl_pct:+.2f}%)\n"
+                f"Fees: ${profit_analysis['total_fee_usd']:.2f}\n"
+                f"Net P/L: ${profit_analysis['net_profit_usd']:+.2f} ({profit_analysis['net_profit_pct']:+.2f}%)\n"
                 f"Reason: {reason}"
             )
             
