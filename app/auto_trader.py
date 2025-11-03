@@ -52,7 +52,7 @@ class AutoTrader:
         # Initialize components
         self.trading_client = get_binance_th_client()
         self.market_client = get_market_data_client()
-        self.ai_engine = AdvancedAITradingEngine()
+        self.ai_engine = AdvancedAITradingEngine(market_client=self.market_client)  # Pass market_client for advanced features
         self.onchain_filter = OnChainFilter(provider=MockOnChainProvider())
         
         # State
@@ -236,13 +236,24 @@ class AutoTrader:
         
         logger.info(f"📊 Position P/L: {pnl_pct:+.2f}%")
         
+        # Fetch order book for liquidity analysis
+        try:
+            order_book = self.market_client.fetch_order_book(self.config.symbol)
+        except Exception as e:
+            logger.warning(f"Could not fetch order book: {e}")
+            order_book = None
+        
+        # Get current account balance
+        account_balance = self.config.budget
+        
         # เรียก AI เพื่อขอ Risk Levels
         # Offload AI analyze if it's synchronous
         analysis = await asyncio.to_thread(
             self.ai_engine.analyze,
             self.config.symbol,
             ohlcv,
-            None
+            order_book,
+            account_balance
         )
         
         tp_pct = analysis.get('take_profit_percent', 1.0)
@@ -288,12 +299,23 @@ class AutoTrader:
             
             logger.info(f"✅ On-Chain Status: {onchain_analysis.status}")
             
+            # Fetch order book for liquidity analysis
+            try:
+                order_book = self.market_client.fetch_order_book(self.config.symbol)
+            except Exception as e:
+                logger.warning(f"Could not fetch order book: {e}")
+                order_book = None
+            
+            # Get current account balance
+            account_balance = self.config.budget
+            
             # 2. AI Analysis
             analysis = await asyncio.to_thread(
                 self.ai_engine.analyze,
                 self.config.symbol,
                 ohlcv,
-                None
+                order_book,
+                account_balance
             )
             
             action = analysis.get('action', 'HOLD')
