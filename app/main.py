@@ -1469,6 +1469,7 @@ async def create_auto_bot(
     """
     try:
         bot_config = BotConfig(
+            user_id=current_user["user_id"],  # Associate with authenticated user
             name=config.get('name', 'Auto Bot'),
             symbol=config.get('symbol', 'BTC/USDT'),
             budget=config.get('budget', 10000),
@@ -1483,6 +1484,8 @@ async def create_auto_bot(
         db.commit()
         db.refresh(bot_config)
         
+        logger.info(f"Created bot config ID {bot_config.id} for user {current_user['user_id']}")
+        
         return {
             "success": True,
             "config_id": bot_config.id,
@@ -1490,14 +1493,22 @@ async def create_auto_bot(
         }
     
     except Exception as e:
-        logger.error(f"Failed to create auto bot: {e}")
+        logger.error(f"Failed to create auto bot for user {current_user['user_id']}: {e}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/auto-bot/config/{config_id}")
-async def get_auto_bot_config(config_id: int, db: Session = Depends(get_db)):
-    """ดึงการตั้งค่า Auto Bot"""
-    config = db.query(BotConfig).filter(BotConfig.id == config_id).first()
+async def get_auto_bot_config(
+    config_id: int,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """ดึงการตั้งค่า Auto Bot (PROTECTED - requires authentication)"""
+    config = db.query(BotConfig).filter(
+        BotConfig.id == config_id,
+        BotConfig.user_id == current_user["user_id"]
+    ).first()
     
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
@@ -1521,10 +1532,13 @@ async def start_auto_bot(
         if auto_trader_instance and auto_trader_instance.is_running:
             raise HTTPException(status_code=400, detail="Auto bot is already running")
         
-        # Load config
-        config = db.query(BotConfig).filter(BotConfig.id == config_id).first()
+        # Load config and verify ownership
+        config = db.query(BotConfig).filter(
+            BotConfig.id == config_id,
+            BotConfig.user_id == current_user["user_id"]
+        ).first()
         if not config:
-            raise HTTPException(status_code=404, detail="Config not found")
+            raise HTTPException(status_code=404, detail="Config not found or access denied")
         
         # สร้าง AutoTrader instance
         # ใช้ session แยกสำหรับ background
@@ -1570,15 +1584,21 @@ async def stop_auto_bot(
         if not auto_trader_instance:
             raise HTTPException(status_code=400, detail="No auto bot is running")
         
+        # Verify config ownership before stopping
+        config = db.query(BotConfig).filter(
+            BotConfig.id == config_id,
+            BotConfig.user_id == current_user["user_id"]
+        ).first()
+        if not config:
+            raise HTTPException(status_code=404, detail="Config not found or access denied")
+        
         # หยุด bot (เก็บ instance ไว้เพื่อให้สามารถอ่าน activity_log หลังหยุดได้)
         auto_trader_instance.stop()
         # ไม่ทำลาย instance ทันที เพื่อให้ /status ยังสามารถคืนค่า activity_log ล่าสุดได้
         
         # อัพเดทสถานะ
-        config = db.query(BotConfig).filter(BotConfig.id == config_id).first()
-        if config:
-            config.is_active = False
-            db.commit()
+        config.is_active = False
+        db.commit()
         
         return {
             "success": True,
@@ -1591,9 +1611,12 @@ async def stop_auto_bot(
 
 
 @app.get("/api/auto-bot/status")
-async def get_auto_bot_status(db: Session = Depends(get_db)):
+async def get_auto_bot_status(
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
     """
-    ดึงสถานะ Auto Bot แบบ Real-time
+    ดึงสถานะ Auto Bot แบบ Real-time (PROTECTED - requires authentication)
     รวม: AI Modules, Activity Log, Config, Performance
     """
     global auto_trader_instance
