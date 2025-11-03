@@ -51,9 +51,13 @@ export default function GodsHand() {
         })
       }
       
+      // ✅ Preserve config - don't overwrite if we just saved one
+      const newConfig = response.data.config
+      
       setBotStatus(prev => ({
         ...response.data,
-        config: response.data.config ?? prev?.config,
+        // Keep existing config if new one is null and we already have one
+        config: newConfig || prev?.config || null,
       }))
     } catch (error) {
       console.error('Failed to fetch bot status:', error)
@@ -162,6 +166,8 @@ export default function GodsHand() {
             try {
               // Fetch and display the saved config immediately
               const configResp = await apiClient.getAutoBotConfig(configId)
+              const savedConfig = configResp.data as any
+              
               setBotStatus(prev => ({
                 ...(prev || {
                   is_running: false,
@@ -169,9 +175,11 @@ export default function GodsHand() {
                   current_position: null,
                   last_check: null,
                 }),
-                config: configResp.data as any,
+                config: savedConfig,
               }))
+              
               showToast(`Configuration saved (ID #${configId}).`, 'success')
+              
               // Make sure user sees the card
               setActiveTab('overview')
               setTimeout(() => {

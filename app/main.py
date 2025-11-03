@@ -1622,8 +1622,13 @@ async def get_auto_bot_status(
     global auto_trader_instance
     
     try:
+        # ✅ Always try to load user's most recent config
+        latest_config = db.query(BotConfig).filter(
+            BotConfig.user_id == current_user["user_id"]
+        ).order_by(BotConfig.created_at.desc()).first()
+        
         if not auto_trader_instance:
-            # No instance at all
+            # No instance at all, but return user's saved config if exists
             return {
                 "is_running": False,
                 "ai_modules": {
@@ -1638,7 +1643,7 @@ async def get_auto_bot_status(
                 "current_position": None,
                 "last_check": None,
                 "activity_log": [],
-                "config": None,
+                "config": latest_config.to_dict() if latest_config else None,
                 "performance": {
                     "total_pnl": 0,
                     "total_trades": 0,
@@ -1653,7 +1658,8 @@ async def get_auto_bot_status(
         if not auto_trader_instance.is_running:
             # Bot stopped: still return recent activity log and config so UI can show stop entry
             activity_log = auto_trader_instance.get_activity_log(limit=10)
-            config = auto_trader_instance.config.to_dict() if auto_trader_instance.config else None
+            # ✅ Use bot's config if available, otherwise user's latest saved config
+            config = auto_trader_instance.config.to_dict() if auto_trader_instance.config else (latest_config.to_dict() if latest_config else None)
             return {
                 "is_running": False,
                 "ai_modules": {
