@@ -343,23 +343,35 @@ class MarketDataProxy:
 
 def get_global_exchange():
     """
-    Get (and cache) a global Binance exchange for reliable market data.
+    Get (and cache) a global Binance TH exchange for reliable market data.
     Attempts to load markets once in a best-effort manner without blocking future requests.
     
-    IMPORTANT: Uses Binance TH (api.binance.th) to avoid geo-restrictions on international endpoints.
+    IMPORTANT: Binance TH uses api.binance.th but ccxt's binance class is hardcoded for .com.
+    We override the exchange's internal URLs dict to force all API calls to .th domain.
     """
     global _GLOBAL_EXCHANGE, _GLOBAL_MARKETS_LOADED
     if _GLOBAL_EXCHANGE is None:
         _GLOBAL_EXCHANGE = ccxt.binance({
             'enableRateLimit': True,
             'rateLimit': 1000,  # ms between requests (conservative)
-            'hostname': 'binance.th',  # Force Thailand endpoint to avoid 451 geo-blocks
-            'sandbox': False,  # Ensure production mode, not testnet
+            'sandbox': False,  # Production mode
             'options': {
                 'defaultType': 'spot',
             }
         })
-        logger.info(f"Initialized ccxt.binance with hostname='binance.th', sandbox=False")
+        # CRITICAL FIX: Override ccxt's hardcoded .com URLs with .th
+        # ccxt constructs API URLs from exchange.urls['api'] + path
+        try:
+            # Force base API URL to Binance TH
+            _GLOBAL_EXCHANGE.urls['api'] = {
+                'public': 'https://api.binance.th/api',
+                'private': 'https://api.binance.th/api',
+            }
+            # Also patch top-level for compatibility
+            _GLOBAL_EXCHANGE.hostname = 'api.binance.th'
+            logger.info(f"Patched ccxt exchange URLs to use api.binance.th")
+        except Exception as e:
+            logger.error(f"Failed to patch ccxt URLs: {e}")
         # Best-effort market load in a short-lived background thread to avoid blocking
         try:
             import threading
@@ -391,15 +403,22 @@ def get_market_data_client():
         return MarketDataProxy(exchange)
     except Exception as e:
         logger.error(f"Error getting market data client: {e}", exc_info=True)
-        # Fallback to a fresh, minimal proxied exchange if cache failed
-        fallback = ccxt.binance({
-            'enableRateLimit': True,
-            'rateLimit': 1200,
-            'hostname': 'binance.th',  # Force Thailand endpoint
-            'sandbox': False,  # Production mode
-            'options': {
-                'defaultType': 'spot',
-            },
-        })
-        logger.info(f"Initialized fallback ccxt.binance with hostname='binance.th', sandbox=False")
-        return MarketDataProxy(fallback)
+        # Fallback: create ephemeral exchange if global one is broken
+        try:
+            fallback = ccxt.binance({
+                'enableRateLimit': True,
+                'rateLimit': 1000,
+                'sandbox': False,
+                'options': {'defaultType': 'spot'}
+            })
+            # Patch URLs for Binance TH
+            fallback.urls['api'] = {
+                'public': 'https://api.binance.th/api',
+                'private': 'https://api.binance.th/api',
+            }
+            fallback.hostname = 'api.binance.th'
+            logger.info("Created fallback exchange with Binance TH URLs")
+            return MarketDataProxy(fallback)
+        except Exception as fallback_error:
+            logger.error(f"Failed to create fallback exchange: {fallback_error}")
+            raise
