@@ -55,11 +55,16 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
     try {
       setSaving(true)
       
-  const response = await apiClient.createAutoBotConfig(config)
+      console.log('💾 Saving config:', config)
+      
+      const response = await apiClient.createAutoBotConfig(config)
+      
+      console.log('✅ Config saved, response:', response.data)
       
       // Pass the config_id to parent
       const configId = (response.data as any).config_id as number
       if (configId) {
+        console.log('📤 Calling onSave with configId:', configId)
         onSave(configId)
       }
       

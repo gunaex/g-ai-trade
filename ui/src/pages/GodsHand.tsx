@@ -199,6 +199,8 @@ export default function GodsHand() {
               const configResp = await apiClient.getAutoBotConfig(configId)
               const savedConfig = configResp.data as any
               
+              console.log('💾 Saved config received:', savedConfig)
+              
               // Update BOTH config AND top-level symbol/budget for consistency
               setBotStatus(prev => ({
                 ...(prev || {
@@ -211,6 +213,8 @@ export default function GodsHand() {
                 symbol: savedConfig.symbol,  // ✅ Update status banner symbol
                 budget: savedConfig.budget,  // ✅ Update status banner budget
               }))
+              
+              console.log('✅ Updated botStatus with new config')
               
               showToast(`Configuration saved (ID #${configId}).`, 'success')
               
