@@ -627,6 +627,16 @@ class AdvancedAITradingEngine:
                 'obv': volume_result.get('obv', {}),
                 'volume_spike': volume_result.get('volume_spike', {})
             }
+            
+            # Build sentiment object for backward compatibility (UI still expects this)
+            sentiment_result = self.sentiment_analyzer.get_combined_sentiment(symbol)
+            sentiment_obj = {
+                'score': _f(sentiment_result.get('score', 0.0)),
+                'interpretation': sentiment_result.get('interpretation', 'NEUTRAL'),
+                'should_trade': bool(sentiment_result.get('should_trade', True)),
+                'twitter': _f(sentiment_result.get('twitter', 0.0)),
+                'news': _f(sentiment_result.get('news', 0.0))
+            }
 
             risk_obj = {
                 'stop_loss_price': _f(risk_levels_early.get('stop_loss_price')),
@@ -657,7 +667,8 @@ class AdvancedAITradingEngine:
                     'risk_reward_ratio': _f(risk_levels_early.get('risk_reward_ratio')),
                     'modules': {
                         'regime': regime_obj,
-                        'volume': volume_obj,  # Changed from sentiment
+                        'volume': volume_obj,  # Volume analysis (new)
+                        'sentiment': sentiment_obj,  # Sentiment analysis (for UI compatibility)
                         'risk_levels': risk_obj,
                         'reversal': reversal_empty,
                         'mtf': mtf_result
@@ -679,6 +690,7 @@ class AdvancedAITradingEngine:
                     'modules': {
                         'regime': regime_obj,
                         'volume': volume_obj,
+                        'sentiment': sentiment_obj,  # Add sentiment for UI
                         'risk_levels': risk_obj,
                         'reversal': reversal_empty,
                         'mtf': mtf_result,
@@ -718,6 +730,7 @@ class AdvancedAITradingEngine:
                         'modules': {
                             'regime': regime_obj,
                             'volume': volume_obj,
+                            'sentiment': sentiment_obj,  # Add sentiment for UI
                             'risk_levels': risk_obj,
                             'reversal': reversal_empty,
                             'mtf': mtf_result,
@@ -810,7 +823,8 @@ class AdvancedAITradingEngine:
                 'position_pct': position_size_info['position_pct'],
                 'modules': {
                     'regime': regime_obj,
-                    'volume': volume_obj,  # Replaces sentiment
+                    'volume': volume_obj,  # Volume analysis (new)
+                    'sentiment': sentiment_obj,  # Sentiment analysis (for UI compatibility)
                     'risk_levels': risk_obj_final,
                     'reversal': {
                         'is_bullish_reversal': reversal_result.get('is_bullish_reversal', False),
@@ -867,6 +881,13 @@ class AdvancedAITradingEngine:
                         'score': 0.5,
                         'interpretation': 'NEUTRAL',
                         'should_trade': False
+                    },
+                    'sentiment': {
+                        'score': 0.0,
+                        'interpretation': 'NEUTRAL',
+                        'should_trade': False,
+                        'twitter': 0.0,
+                        'news': 0.0
                     },
                     'risk_levels': fallback_risk,
                     'reversal': {
