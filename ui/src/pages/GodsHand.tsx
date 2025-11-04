@@ -80,17 +80,29 @@ export default function GodsHand() {
   const handleStartBot = async () => {
     try {
       setLoading(true)
-      const configResponse = await apiClient.createAutoBotConfig({
-        name: 'God\'s Hand Bot',
-        symbol: 'BTC/USDT',
-        budget: 10000,
-        risk_level: 'moderate',
-        min_confidence: 0.7,
-        position_size_ratio: 0.95,
-        max_daily_loss: 5.0
-      })
-      const configId = (configResponse.data as any).config_id as number
-      showToast(`Configuration created (ID #${configId}). Starting bot...`, 'success')
+      
+      // Try to use existing saved config first
+      let configId: number
+      
+      if (botStatus?.config?.id) {
+        // Use the existing config from status (already saved)
+        configId = botStatus.config.id
+        showToast(`Using saved configuration (ID #${configId}). Starting bot...`, 'info')
+      } else {
+        // No config exists, create default config
+        const configResponse = await apiClient.createAutoBotConfig({
+          name: 'God\'s Hand Bot',
+          symbol: 'BTC/USDT',
+          budget: 10000,
+          risk_level: 'moderate',
+          min_confidence: 0.7,
+          position_size_ratio: 0.95,
+          max_daily_loss: 5.0
+        })
+        configId = (configResponse.data as any).config_id as number
+        showToast(`Configuration created (ID #${configId}). Starting bot...`, 'success')
+      }
+      
       await apiClient.startAutoBot(configId)
       await fetchBotStatus()
     } catch (error: any) {
