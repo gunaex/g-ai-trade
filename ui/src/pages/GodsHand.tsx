@@ -254,7 +254,7 @@ export default function GodsHand() {
         <>
           {botStatus.config && (
             <div id="config-section">
-              <ConfigDisplay config={botStatus.config as any} />
+              <ConfigDisplay key={botStatus.config.id} config={botStatus.config as any} />
             </div>
           )}
           <AIStatusMonitor modules={botStatus.ai_modules} isRunning={isRunning} />
