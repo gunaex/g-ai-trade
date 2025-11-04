@@ -324,7 +324,7 @@ class MarketDataProxy:
                 return cached
             self._handle_rate_limit(e)
 
-    def fetch_order_book(self, symbol: str, limit: int | None = None):
+    def fetch_order_book(self, symbol: str, limit: Optional[int] = None):
         key = self._cache_key('order_book', symbol, limit or 0)
         try:
             # order book can be cached very briefly (2s)
