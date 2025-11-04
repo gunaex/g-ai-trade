@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 import os
 from dotenv import load_dotenv
 import logging
+from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -251,14 +252,14 @@ class MarketDataProxy:
     def __init__(self, exchange: ccxt.binance):
         self.exchange = exchange
         # caches: key -> (expires_at, value)
-        self._cache: dict[str, tuple[float, any]] = {}
+        self._cache: dict[str, tuple[float, Any]] = {}
         # cooldown until timestamp if rate-limited/banned
         self._cooldown_until: float = 0.0
 
     def _cache_key(self, name: str, *parts) -> str:
         return f"{name}|{'|'.join(map(str, parts))}"
 
-    def _get_cached(self, key: str) -> any | None:
+    def _get_cached(self, key: str) -> Optional[Any]:
         item = self._cache.get(key)
         if not item:
             return None
@@ -269,7 +270,7 @@ class MarketDataProxy:
         self._cache.pop(key, None)
         return None
 
-    def _set_cache(self, key: str, ttl_sec: float, value: any):
+    def _set_cache(self, key: str, ttl_sec: float, value: Any):
         self._cache[key] = (now_ts() + ttl_sec, value)
 
     def _handle_rate_limit(self, err: Exception):
