@@ -353,30 +353,13 @@ def get_global_exchange():
         _GLOBAL_EXCHANGE = ccxt.binance({
             'enableRateLimit': True,
             'rateLimit': 1000,  # ms between requests (conservative)
-            'hostname': 'binance.th',  # Force Thailand endpoint to avoid 451 geo-blocks (best-effort; we also patch urls below)
+            'hostname': 'binance.th',  # Force Thailand endpoint to avoid 451 geo-blocks
+            'sandbox': False,  # Ensure production mode, not testnet
             'options': {
                 'defaultType': 'spot',
             }
         })
-        # Force all relevant URLs to use api.binance.th to avoid geo-blocks
-        # CRITICAL: ccxt builds URLs from exchange.urls dict; patching it forces TH endpoints
-        try:
-            urls = _GLOBAL_EXCHANGE.urls
-            # Spot endpoints (primary)
-            urls['api'] = 'https://api.binance.th'
-            urls['public'] = 'https://api.binance.th'
-            urls['private'] = 'https://api.binance.th'
-            # Service-specific endpoints
-            urls['sapi'] = 'https://api.binance.th/sapi'
-            urls['wapi'] = 'https://api.binance.th/wapi'
-            urls['eapi'] = 'https://api.binance.th/eapi'
-            urls['vapi'] = 'https://api.binance.th/vapi'
-            # Futures/Delivery not used but patch anyway to be safe
-            urls['fapi'] = 'https://api.binance.th/fapi'
-            urls['dapi'] = 'https://api.binance.th/dapi'
-            logger.info(f"Patched ccxt Binance URLs to api.binance.th: {urls.get('api')}")
-        except Exception as e:
-            logger.error(f"Failed to patch ccxt URLs: {e}")
+        logger.info(f"Initialized ccxt.binance with hostname='binance.th', sandbox=False")
         # Best-effort market load in a short-lived background thread to avoid blocking
         try:
             import threading
@@ -412,23 +395,11 @@ def get_market_data_client():
         fallback = ccxt.binance({
             'enableRateLimit': True,
             'rateLimit': 1200,
-            'hostname': 'binance.th',  # Force Thailand endpoint (best-effort; also patch urls)
+            'hostname': 'binance.th',  # Force Thailand endpoint
+            'sandbox': False,  # Production mode
             'options': {
                 'defaultType': 'spot',
             },
         })
-        try:
-            urls = fallback.urls
-            urls['api'] = 'https://api.binance.th'
-            urls['public'] = 'https://api.binance.th'
-            urls['private'] = 'https://api.binance.th'
-            urls['sapi'] = 'https://api.binance.th/sapi'
-            urls['wapi'] = 'https://api.binance.th/wapi'
-            urls['eapi'] = 'https://api.binance.th/eapi'
-            urls['vapi'] = 'https://api.binance.th/vapi'
-            urls['fapi'] = 'https://api.binance.th/fapi'
-            urls['dapi'] = 'https://api.binance.th/dapi'
-            logger.info(f"Patched fallback ccxt Binance URLs to api.binance.th: {urls.get('api')}")
-        except Exception as e:
-            logger.error(f"Failed to patch fallback URLs: {e}")
+        logger.info(f"Initialized fallback ccxt.binance with hostname='binance.th', sandbox=False")
         return MarketDataProxy(fallback)
