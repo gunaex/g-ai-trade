@@ -61,8 +61,17 @@ class PositionSizer:
             
             # Calculate Kelly Criterion: f* = (p*b - q) / b
             # where p = win rate, q = lose rate, b = win/loss ratio
-            b = avg_win_pct / avg_loss_pct if avg_loss_pct > 0 else 2.0
-            kelly_fraction = (win_rate * b - (1 - win_rate)) / b
+            # Prevent division by zero
+            if avg_loss_pct > 0 and avg_win_pct > 0:
+                b = avg_win_pct / avg_loss_pct
+            else:
+                b = 2.0  # Default win/loss ratio
+            
+            # Prevent division by zero in Kelly calculation
+            if b > 0:
+                kelly_fraction = (win_rate * b - (1 - win_rate)) / b
+            else:
+                kelly_fraction = 0.01  # Default 1% if calculation fails
             
             # Apply Half-Kelly for safety (reduce aggressive sizing)
             half_kelly = kelly_fraction / 2

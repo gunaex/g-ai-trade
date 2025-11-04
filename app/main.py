@@ -1,4 +1,3 @@
-
 import os
 import logging
 from datetime import datetime, timedelta
@@ -476,6 +475,108 @@ async def delete_api_keys(
         raise
     except Exception as e:
         logger.error(f"Delete API keys error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== USER MANAGEMENT ENDPOINTS ====================
+
+@app.get("/api/users")
+async def list_users(
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List all users in the system
+    
+    Requires: Bearer token in Authorization header
+    Returns: List of all registered users with their basic information
+    """
+    try:
+        # Get all users ordered by creation date (newest first)
+        users = db.query(User).order_by(User.created_at.desc()).all()
+        
+        # Convert to dict (excluding sensitive data like passwords)
+        users_list = [user.to_dict() for user in users]
+        
+        return {
+            "success": True,
+            "count": len(users_list),
+            "users": users_list
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"List users error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/users/{user_id}")
+async def delete_user_by_id(
+    user_id: int,
+    current_user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a user from the system by user ID
+    
+    Requires: Bearer token in Authorization header
+    WARNING: This will permanently delete the user and all associated data
+    """
+    try:
+        # Prevent self-deletion
+        if user_id == current_user["user_id"]:
+            raise HTTPException(status_code=400, detail="Cannot delete your own account")
+        
+        # Find the user to delete
+        user_to_delete = db.query(User).filter(User.id == user_id).first()
+        
+        if not user_to_delete:
+            raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found")
+        
+        username = user_to_delete.username
+        
+        # Delete the user
+        db.delete(user_to_delete)
+        db.commit()
+        
+        logger.info(f"User '{username}' (ID: {user_id}) deleted by user {current_user['username']}")
+        
+        return {
+            "success": True,
+            "message": f"User '{username}' deleted successfully",
+            "deleted_user_id": user_id
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete user error: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/auth/delete-user/{username}")
+async def delete_user(username: str, db: Session = Depends(get_db)):
+    """
+    Delete a user by username (legacy endpoint - use DELETE /api/users/{user_id} instead)
+    """
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        username_deleted = user.username
+        db.delete(user)
+        db.commit()
+        
+        logger.info(f"User '{username_deleted}' deleted via legacy endpoint")
+        return {"success": True, "message": f"User '{username_deleted}' deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete user error: {e}", exc_info=True)
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
