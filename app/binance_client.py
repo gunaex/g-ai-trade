@@ -359,9 +359,10 @@ def get_global_exchange():
             }
         })
         # Force all relevant URLs to use api.binance.th to avoid geo-blocks
+        # CRITICAL: ccxt builds URLs from exchange.urls dict; patching it forces TH endpoints
         try:
             urls = _GLOBAL_EXCHANGE.urls
-            # Spot endpoints
+            # Spot endpoints (primary)
             urls['api'] = 'https://api.binance.th'
             urls['public'] = 'https://api.binance.th'
             urls['private'] = 'https://api.binance.th'
@@ -373,8 +374,9 @@ def get_global_exchange():
             # Futures/Delivery not used but patch anyway to be safe
             urls['fapi'] = 'https://api.binance.th/fapi'
             urls['dapi'] = 'https://api.binance.th/dapi'
-        except Exception:
-            pass
+            logger.info(f"Patched ccxt Binance URLs to api.binance.th: {urls.get('api')}")
+        except Exception as e:
+            logger.error(f"Failed to patch ccxt URLs: {e}")
         # Best-effort market load in a short-lived background thread to avoid blocking
         try:
             import threading
@@ -426,6 +428,7 @@ def get_market_data_client():
             urls['vapi'] = 'https://api.binance.th/vapi'
             urls['fapi'] = 'https://api.binance.th/fapi'
             urls['dapi'] = 'https://api.binance.th/dapi'
-        except Exception:
-            pass
+            logger.info(f"Patched fallback ccxt Binance URLs to api.binance.th: {urls.get('api')}")
+        except Exception as e:
+            logger.error(f"Failed to patch fallback URLs: {e}")
         return MarketDataProxy(fallback)
