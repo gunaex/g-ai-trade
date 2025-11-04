@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, Save, Info } from 'lucide-react'
 import apiClient from '../lib/api'
 
@@ -54,6 +54,23 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
   })
 
   const [saving, setSaving] = useState(false)
+
+  // Sync with initialConfig if it arrives after mount (avoids defaulting to 10000)
+  useEffect(() => {
+    if (initialConfig) {
+      setConfig(prev => ({
+        ...prev,
+        name: initialConfig.name ?? prev.name,
+        symbol: initialConfig.symbol ?? prev.symbol,
+        budget: Number(initialConfig.budget ?? prev.budget),
+        paper_trading: initialConfig.paper_trading ?? prev.paper_trading,
+        risk_level: (initialConfig.risk_level ?? prev.risk_level) as 'conservative' | 'moderate' | 'aggressive',
+        min_confidence: Number(initialConfig.min_confidence ?? prev.min_confidence),
+        position_size_ratio: Number(initialConfig.position_size_ratio ?? prev.position_size_ratio),
+        max_daily_loss: Number(initialConfig.max_daily_loss ?? prev.max_daily_loss),
+      }))
+    }
+  }, [initialConfig])
 
   const handleSave = async () => {
     try {
