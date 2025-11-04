@@ -4,8 +4,8 @@ This ensures the database schema is always up-to-date
 """
 
 import logging
-from sqlalchemy import text
-from app.db import SessionLocal
+from sqlalchemy import text, inspect
+from app.db import SessionLocal, engine
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +26,11 @@ def add_paper_trading_column():
     
     db = SessionLocal()
     try:
-        # Check if column already exists
-        result = db.execute(text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name='bot_configs' AND column_name='paper_trading';
-        """))
+        # Use SQLAlchemy inspector to check if column exists (works for all DB types)
+        inspector = inspect(engine)
+        columns = [col['name'] for col in inspector.get_columns('bot_configs')]
         
-        if result.fetchone():
+        if 'paper_trading' in columns:
             logger.info("✅ Column 'paper_trading' already exists - skipping")
             return
         
