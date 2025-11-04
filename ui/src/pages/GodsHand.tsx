@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Power, Brain, Zap, AlertCircle, TrendingUp, Settings as SettingsIcon, Activity } from 'lucide-react'
 import AIStatusMonitor from '../components/AIStatusMonitor'
 import AutoBotConfig from '../components/AutoBotConfig'
@@ -15,6 +15,10 @@ export default function GodsHand() {
   const [showConfig, setShowConfig] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'performance'>('overview')
   const { showToast, ToastContainer } = useToast()
+  
+  // Guard: hold saved config for a short window to avoid flicker from stale polls
+  const guardUntilRef = useRef<number>(0)
+  const lastSavedConfigIdRef = useRef<number | null>(null)
   
   // Separate state for activities that NEVER gets cleared
   const [activities, setActivities] = useState<any[]>([])
@@ -69,14 +73,42 @@ export default function GodsHand() {
         })
       }
       
-      // ✅ Preserve config - don't overwrite if we just saved one
+      // ✅ Preserve config - don't overwrite if we just saved one (5s guard)
       const newConfig = response.data.config
-      
-      setBotStatus(prev => ({
-        ...response.data,
-        // Keep existing config if new one is null and we already have one
-        config: newConfig || prev?.config || null,
-      }))
+      setBotStatus(prev => {
+        const now = Date.now()
+        const prevConfig = prev?.config as any
+  let configToUse = newConfig || prevConfig || null
+
+        if (
+          now < guardUntilRef.current &&
+          prevConfig?.id &&
+          newConfig?.id &&
+          newConfig.id < prevConfig.id
+        ) {
+          // Within guard window and incoming config is older → ignore to prevent flicker
+          configToUse = prevConfig
+          console.log('🛡️ Guard active: ignoring older status config', {
+            incomingId: newConfig.id,
+            keptId: prevConfig.id,
+            guardUntil: new Date(guardUntilRef.current).toISOString()
+          })
+        }
+
+        // Keep symbol/budget consistent with the config we decided to show
+        const symbolToUse = (configToUse as any)?.symbol ?? response.data.symbol
+        const budgetToUse = (configToUse as any)?.budget ?? response.data.budget
+
+        return {
+          ...response.data,
+          config: configToUse,
+          symbol: symbolToUse,
+          budget: budgetToUse,
+          // Preserve other fields from previous if response lacks them
+          ai_modules: response.data.ai_modules ?? prev?.ai_modules,
+          performance: response.data.performance ?? prev?.performance,
+        }
+      })
     } catch (error) {
       console.error('Failed to fetch bot status:', error)
     }
@@ -227,6 +259,14 @@ export default function GodsHand() {
                 symbol: savedConfig.symbol,  // ✅ Update status banner symbol
                 budget: savedConfig.budget,  // ✅ Update status banner budget
               }))
+
+              // Start a short guard window to prevent flicker from stale polls
+              lastSavedConfigIdRef.current = configId
+              guardUntilRef.current = Date.now() + 5000
+              console.log('⏳ Guard enabled for 5s to hold saved config on screen', {
+                configId,
+                guardUntil: new Date(guardUntilRef.current).toISOString()
+              })
               
               console.log('✅ Updated botStatus with new config')
               
