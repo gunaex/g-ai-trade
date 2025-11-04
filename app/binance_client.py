@@ -353,11 +353,28 @@ def get_global_exchange():
         _GLOBAL_EXCHANGE = ccxt.binance({
             'enableRateLimit': True,
             'rateLimit': 1000,  # ms between requests (conservative)
-            'hostname': 'binance.th',  # Force Thailand endpoint to avoid 451 geo-blocks
+            'hostname': 'binance.th',  # Force Thailand endpoint to avoid 451 geo-blocks (best-effort; we also patch urls below)
             'options': {
                 'defaultType': 'spot',
             }
         })
+        # Force all relevant URLs to use api.binance.th to avoid geo-blocks
+        try:
+            urls = _GLOBAL_EXCHANGE.urls
+            # Spot endpoints
+            urls['api'] = 'https://api.binance.th'
+            urls['public'] = 'https://api.binance.th'
+            urls['private'] = 'https://api.binance.th'
+            # Service-specific endpoints
+            urls['sapi'] = 'https://api.binance.th/sapi'
+            urls['wapi'] = 'https://api.binance.th/wapi'
+            urls['eapi'] = 'https://api.binance.th/eapi'
+            urls['vapi'] = 'https://api.binance.th/vapi'
+            # Futures/Delivery not used but patch anyway to be safe
+            urls['fapi'] = 'https://api.binance.th/fapi'
+            urls['dapi'] = 'https://api.binance.th/dapi'
+        except Exception:
+            pass
         # Best-effort market load in a short-lived background thread to avoid blocking
         try:
             import threading
@@ -393,9 +410,22 @@ def get_market_data_client():
         fallback = ccxt.binance({
             'enableRateLimit': True,
             'rateLimit': 1200,
-            'hostname': 'binance.th',  # Force Thailand endpoint
+            'hostname': 'binance.th',  # Force Thailand endpoint (best-effort; also patch urls)
             'options': {
                 'defaultType': 'spot',
             },
         })
+        try:
+            urls = fallback.urls
+            urls['api'] = 'https://api.binance.th'
+            urls['public'] = 'https://api.binance.th'
+            urls['private'] = 'https://api.binance.th'
+            urls['sapi'] = 'https://api.binance.th/sapi'
+            urls['wapi'] = 'https://api.binance.th/wapi'
+            urls['eapi'] = 'https://api.binance.th/eapi'
+            urls['vapi'] = 'https://api.binance.th/vapi'
+            urls['fapi'] = 'https://api.binance.th/fapi'
+            urls['dapi'] = 'https://api.binance.th/dapi'
+        except Exception:
+            pass
         return MarketDataProxy(fallback)
