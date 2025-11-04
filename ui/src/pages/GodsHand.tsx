@@ -233,6 +233,7 @@ export default function GodsHand() {
             name: (botStatus.config as any).name,
             symbol: (botStatus.config as any).symbol,
             budget: (botStatus.config as any).budget,
+            paper_trading: (botStatus.config as any).paper_trading,
             risk_level: (botStatus.config as any).risk_level,
             min_confidence: (botStatus.config as any).min_confidence,
             position_size_ratio: (botStatus.config as any).position_size_ratio,

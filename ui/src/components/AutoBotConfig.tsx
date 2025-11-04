@@ -9,6 +9,7 @@ interface Props {
     name: string
     symbol: string
     budget: number
+    paper_trading?: boolean
     risk_level: 'conservative' | 'moderate' | 'aggressive'
     min_confidence: number
     position_size_ratio: number
@@ -21,6 +22,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
     name: string
     symbol: string
     budget: number
+    paper_trading: boolean
     risk_level: 'conservative' | 'moderate' | 'aggressive'
     min_confidence: number
     position_size_ratio: number
@@ -32,6 +34,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
         name: initialConfig.name ?? "God's Hand Bot",
         symbol: initialConfig.symbol ?? 'BTC/USDT',
         budget: Number(initialConfig.budget ?? 10000),
+        paper_trading: initialConfig.paper_trading ?? true,  // Default to paper trading (safe)
         risk_level: (initialConfig.risk_level ?? 'moderate') as 'conservative' | 'moderate' | 'aggressive',
         min_confidence: Number(initialConfig.min_confidence ?? 0.7),
         position_size_ratio: Number(initialConfig.position_size_ratio ?? 0.95),
@@ -42,6 +45,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
       name: "God's Hand Bot",
       symbol: 'BTC/USDT',
       budget: 10000,
+      paper_trading: true,  // Default to paper trading (safe)
       risk_level: 'moderate',
       min_confidence: 0.7,
       position_size_ratio: 0.95,
@@ -129,6 +133,38 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
               step={100}
             />
             <span className="form-hint">Total capital allocated to this bot</span>
+          </div>
+
+          {/* Paper Trading Toggle */}
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              Trading Mode
+              <Info size={16} style={{ color: '#888' }} />
+            </label>
+            <div className="paper-trading-toggle" style={{
+              padding: '12px',
+              border: '2px solid',
+              borderColor: config.paper_trading ? '#10b981' : '#f59e0b',
+              borderRadius: '8px',
+              backgroundColor: config.paper_trading ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)'
+            }}>
+              <label className="radio-label" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                <input 
+                  type="checkbox"
+                  checked={config.paper_trading}
+                  onChange={(e) => setConfig({...config, paper_trading: e.target.checked})}
+                  style={{ width: '20px', height: '20px' }}
+                />
+                <span style={{ fontWeight: 'bold', color: config.paper_trading ? '#10b981' : '#f59e0b' }}>
+                  {config.paper_trading ? '📝 Paper Trading (Simulated)' : '💰 Live Trading (Real Money)'}
+                </span>
+              </label>
+              <span className="form-hint" style={{ display: 'block', marginLeft: '32px' }}>
+                {config.paper_trading 
+                  ? '✅ Safe mode: Test strategies without risking real money' 
+                  : '⚠️  CAUTION: Real orders will be placed on Binance TH'}
+              </span>
+            </div>
           </div>
 
           {/* Risk Level */}

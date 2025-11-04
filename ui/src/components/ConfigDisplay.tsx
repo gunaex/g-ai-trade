@@ -5,6 +5,7 @@ interface Config {
   name: string
   symbol: string
   budget: number
+  paper_trading?: boolean
   risk_level: string
   min_confidence: number
   position_size_ratio: number
@@ -96,6 +97,15 @@ export default function ConfigDisplay({ config }: Props) {
       <div className="config-details">
         <h3>Advanced Settings</h3>
         <div className="details-grid">
+          <div className="detail-row">
+            <span className="detail-label">Trading Mode:</span>
+            <span className={`detail-value ${config.paper_trading ? 'success' : 'warning'}`} style={{
+              fontWeight: 'bold',
+              color: config.paper_trading ? '#10b981' : '#f59e0b'
+            }}>
+              {config.paper_trading ? '📝 Paper (Simulated)' : '💰 Live (Real Money)'}
+            </span>
+          </div>
           <div className="detail-row">
             <span className="detail-label">Position Size:</span>
             <span className="detail-value">{(config.position_size_ratio * 100).toFixed(0)}% of budget</span>

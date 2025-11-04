@@ -93,6 +93,9 @@ class BotConfig(Base):
     symbol = Column(String, default="BTC/USDT")  # 'BTC/USDT'
     is_active = Column(Boolean, default=False)  # เปิด/ปิด Bot
     
+    # Trading Mode
+    paper_trading = Column(Boolean, default=True)  # True = Paper (Simulated), False = Live (Real Money)
+    
     # Budget & Risk
     budget = Column(Float, default=10000.0)  # งบประมาณ (USD)
     position_size_ratio = Column(Float, default=0.95)  # ใช้เงิน 95%
@@ -119,6 +122,7 @@ class BotConfig(Base):
             'name': self.name,
             'symbol': self.symbol,
             'budget': self.budget,
+            'paper_trading': self.paper_trading,
             'risk_level': self.risk_level,
             'min_confidence': self.min_confidence,
             'position_size_ratio': self.position_size_ratio,
