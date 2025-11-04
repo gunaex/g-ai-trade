@@ -101,6 +101,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve built frontend (Vite) assets if available
+try:
+    if os.path.exists("dist/assets"):
+        # Serve fingerprinted assets under /assets/*
+        app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+        logger.info("Static assets mounted from ./dist/assets")
+    else:
+        logger.info("dist/assets not found; static assets not mounted")
+except Exception as e:
+    logger.warning(f"Failed to mount static assets: {e}")
+
 # Initialize AI Engine lazily to avoid heavy imports during app startup
 ai_engine = None  # type: Optional[AIDecisionEngine]
 advanced_ai_engine = None  # type: Optional[AdvancedAITradingEngine]
@@ -2057,3 +2068,21 @@ async def get_fee_summary(
     if fp is None:
         raise HTTPException(status_code=404, detail="Fee protection is not available on this bot.")
     return fp.get_fee_summary()
+
+
+# ==================== SPA FALLBACK (NON-API ROUTES) ====================
+
+@app.get("/{full_path:path}")
+async def spa_fallback(full_path: str):
+    """
+    Serve the frontend index.html for any non-API route (client-side routing support).
+    This prevents 404s like /gods-hand, /trade, etc. when reloading or deep-linking.
+    """
+    # Do not handle API routes here
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    # Serve built index.html if present
+    index_path = os.path.join("dist", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "G-AI-TRADE API v1.0 - Frontend not built yet"}
