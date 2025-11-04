@@ -229,196 +229,216 @@ class BinanceThailandClient:
         return self._request('GET', '/api/v1/myTrades', params, signed=True)
 
 
-# ==================== GLOBAL BINANCE FOR MARKET DATA ====================
+# ==================== MARKET DATA CLIENT (NATIVE BINANCE TH) ====================
 
-import ccxt
-from ccxt.base.errors import DDoSProtection, RateLimitExceeded
 from time import time as now_ts
 
-# cache global exchange to avoid repeated, slow initializations
-_GLOBAL_EXCHANGE = None
-_GLOBAL_MARKETS_LOADED = False
+# Cache for market data to reduce API calls
+_MARKET_DATA_CACHE = {}
+_COOLDOWN_UNTIL = 0
 
 
-class MarketDataProxy:
+class BinanceThMarketData:
     """
-    Thin proxy around ccxt.binance with:
-    - enableRateLimit already set on underlying exchange
-    - small in-memory caches to avoid hammering Binance
-    - graceful handling of 418/429 (DDoSProtection / RateLimitExceeded) with cooldown
-    - drop-in replacement: implements fetch_ticker, fetch_ohlcv, fetch_order_book
-    """
-
-    def __init__(self, exchange: ccxt.binance):
-        self.exchange = exchange
-        # caches: key -> (expires_at, value)
-        self._cache: dict[str, tuple[float, Any]] = {}
-        # cooldown until timestamp if rate-limited/banned
-        self._cooldown_until: float = 0.0
-
-    def _cache_key(self, name: str, *parts) -> str:
-        return f"{name}|{'|'.join(map(str, parts))}"
-
-    def _get_cached(self, key: str) -> Optional[Any]:
-        item = self._cache.get(key)
-        if not item:
-            return None
-        expires, value = item
-        if now_ts() < expires:
-            return value
-        # expired
-        self._cache.pop(key, None)
-        return None
-
-    def _set_cache(self, key: str, ttl_sec: float, value: Any):
-        self._cache[key] = (now_ts() + ttl_sec, value)
-
-    def _handle_rate_limit(self, err: Exception):
-        # Exponential-ish backoff; keep a short cooldown to avoid repeated hammering
-        cooldown = 30  # seconds
-        self._cooldown_until = max(self._cooldown_until, now_ts() + cooldown)
-        raise
-
-    def _respect_cooldown(self):
-        if now_ts() < self._cooldown_until:
-            # During cooldown return cached data if any; else raise a friendly error
-            raise DDoSProtection(f"Cooling down until {self._cooldown_until}")
-
-    # Drop-in wrappers
-    def fetch_ticker(self, symbol: str):
-        key = self._cache_key('ticker', symbol)
-        try:
-            # small TTL cache (5s)
-            cached = self._get_cached(key)
-            if cached is not None:
-                return cached
-            self._respect_cooldown()
-            data = self.exchange.fetch_ticker(symbol)
-            self._set_cache(key, 5, data)
-            return data
-        except (DDoSProtection, RateLimitExceeded) as e:
-            # return stale if present
-            cached = self._get_cached(key)
-            if cached is not None:
-                return cached
-            self._handle_rate_limit(e)
-
-    def fetch_ohlcv(self, symbol: str, timeframe: str = '1h', limit: int = 100):
-        key = self._cache_key('ohlcv', symbol, timeframe, limit)
-        try:
-            # OHLCV can be cached longer (i.e., one candle for timeframe)
-            ttl = {
-                '1m': 30, '3m': 45, '5m': 60, '15m': 180, '30m': 300,
-                '1h': 600, '2h': 1200, '4h': 1800, '1d': 3600
-            }.get(timeframe, 120)
-            cached = self._get_cached(key)
-            if cached is not None:
-                return cached
-            self._respect_cooldown()
-            data = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-            self._set_cache(key, ttl, data)
-            return data
-        except (DDoSProtection, RateLimitExceeded) as e:
-            cached = self._get_cached(key)
-            if cached is not None:
-                return cached
-            self._handle_rate_limit(e)
-
-    def fetch_order_book(self, symbol: str, limit: Optional[int] = None):
-        key = self._cache_key('order_book', symbol, limit or 0)
-        try:
-            # order book can be cached very briefly (2s)
-            cached = self._get_cached(key)
-            if cached is not None:
-                return cached
-            self._respect_cooldown()
-            data = self.exchange.fetch_order_book(symbol, limit=limit)
-            self._set_cache(key, 2, data)
-            return data
-        except (DDoSProtection, RateLimitExceeded) as e:
-            cached = self._get_cached(key)
-            if cached is not None:
-                return cached
-            self._handle_rate_limit(e)
-
-def get_global_exchange():
-    """
-    Get (and cache) a global Binance TH exchange for reliable market data.
-    Attempts to load markets once in a best-effort manner without blocking future requests.
+    Market data client using native Binance TH API v1.
+    Implements ccxt-compatible interface (fetch_ticker, fetch_ohlcv, fetch_order_book)
+    with in-memory caching and rate-limit protection.
     
-    IMPORTANT: Binance TH uses api.binance.th but ccxt's binance class is hardcoded for .com.
-    We override the exchange's internal URLs dict to force all API calls to .th domain.
+    Replaces ccxt.binance which doesn't support Binance TH's /api/v1/* endpoints.
     """
-    global _GLOBAL_EXCHANGE, _GLOBAL_MARKETS_LOADED
-    if _GLOBAL_EXCHANGE is None:
-        _GLOBAL_EXCHANGE = ccxt.binance({
-            'enableRateLimit': True,
-            'rateLimit': 1000,  # ms between requests (conservative)
-            'sandbox': False,  # Production mode
-            'options': {
-                'defaultType': 'spot',
-            }
-        })
-        # CRITICAL FIX: Override ccxt's hardcoded .com URLs with .th
-        # ccxt constructs API URLs from exchange.urls['api'] + path
+    
+    def __init__(self):
+        self.client = BinanceThailandClient()  # Public endpoints don't need API keys
+        self._cache = {}
+        self._cooldown_until = 0
+    
+    def _get_cached(self, key):
+        """Get cached value if not expired"""
+        if key in self._cache:
+            cached_at, ttl, value = self._cache[key]
+            if now_ts() - cached_at < ttl:
+                return value
+        return None
+    
+    def _set_cache(self, key, ttl, value):
+        """Cache a value with TTL in seconds"""
+        self._cache[key] = (now_ts(), ttl, value)
+    
+    def _respect_cooldown(self):
+        """Wait if we're in rate-limit cooldown"""
+        global _COOLDOWN_UNTIL
+        remaining = _COOLDOWN_UNTIL - now_ts()
+        if remaining > 0:
+            logger.warning(f"Rate limit cooldown active, waiting {remaining:.1f}s")
+            time.sleep(min(remaining, 5))
+    
+    def _handle_rate_limit(self, error):
+        """Set cooldown on rate limit errors"""
+        global _COOLDOWN_UNTIL
+        _COOLDOWN_UNTIL = now_ts() + 60  # 1 minute cooldown
+        logger.error(f"Rate limit hit, cooldown for 60s: {error}")
+        raise
+    
+    def fetch_ticker(self, symbol: str):
+        """
+        Fetch 24h ticker data for a symbol.
+        Returns ccxt-compatible dict with keys: symbol, last, bid, ask, high, low, volume, etc.
+        """
+        # Convert ccxt format (BTC/USDT) to Binance format (BTCUSDT)
+        binance_symbol = symbol.replace('/', '')
+        
+        key = f"ticker:{binance_symbol}"
+        cached = self._get_cached(key)
+        if cached is not None:
+            return cached
+        
+        self._respect_cooldown()
+        
         try:
-            # Force base API URL to Binance TH
-            _GLOBAL_EXCHANGE.urls['api'] = {
-                'public': 'https://api.binance.th/api',
-                'private': 'https://api.binance.th/api',
+            ticker_data = self.client.get_ticker_24h(symbol=binance_symbol)
+            
+            # Convert Binance TH format to ccxt format
+            result = {
+                'symbol': symbol,
+                'timestamp': ticker_data.get('closeTime'),
+                'datetime': None,
+                'high': float(ticker_data.get('highPrice', 0)),
+                'low': float(ticker_data.get('lowPrice', 0)),
+                'bid': float(ticker_data.get('bidPrice', 0)),
+                'ask': float(ticker_data.get('askPrice', 0)),
+                'last': float(ticker_data.get('lastPrice', 0)),
+                'close': float(ticker_data.get('lastPrice', 0)),
+                'baseVolume': float(ticker_data.get('volume', 0)),
+                'quoteVolume': float(ticker_data.get('quoteVolume', 0)),
+                'info': ticker_data
             }
-            # Also patch top-level for compatibility
-            _GLOBAL_EXCHANGE.hostname = 'api.binance.th'
-            logger.info(f"Patched ccxt exchange URLs to use api.binance.th")
+            
+            self._set_cache(key, 5, result)  # Cache for 5 seconds
+            return result
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response and e.response.status_code in [418, 429]:
+                self._handle_rate_limit(e)
+            raise
+    
+    def fetch_ohlcv(self, symbol: str, timeframe: str = '1h', limit: int = 100):
+        """
+        Fetch OHLCV (candlestick) data.
+        Returns list of [timestamp, open, high, low, close, volume]
+        """
+        # Convert ccxt format (BTC/USDT) to Binance format (BTCUSDT)
+        binance_symbol = symbol.replace('/', '')
+        
+        # Map ccxt timeframes to Binance intervals
+        interval_map = {
+            '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h', '12h': '12h',
+            '1d': '1d', '3d': '3d', '1w': '1w', '1M': '1M'
+        }
+        interval = interval_map.get(timeframe, '1h')
+        
+        key = f"ohlcv:{binance_symbol}:{interval}:{limit}"
+        
+        # Cache duration based on timeframe
+        cache_ttl = {'1m': 10, '5m': 30, '15m': 60, '1h': 300, '1d': 3600}.get(timeframe, 60)
+        
+        cached = self._get_cached(key)
+        if cached is not None:
+            return cached
+        
+        self._respect_cooldown()
+        
+        try:
+            klines = self.client.get_klines(symbol=binance_symbol, interval=interval, limit=limit)
+            
+            # Convert Binance format to ccxt format
+            # Binance: [openTime, open, high, low, close, volume, closeTime, quoteVolume, ...]
+            result = [
+                [
+                    int(k[0]),  # timestamp
+                    float(k[1]),  # open
+                    float(k[2]),  # high
+                    float(k[3]),  # low
+                    float(k[4]),  # close
+                    float(k[5])   # volume
+                ]
+                for k in klines
+            ]
+            
+            self._set_cache(key, cache_ttl, result)
+            return result
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response and e.response.status_code in [418, 429]:
+                self._handle_rate_limit(e)
+            raise
+    
+    def fetch_order_book(self, symbol: str, limit: int = 100):
+        """
+        Fetch order book (market depth).
+        Returns dict with 'bids' and 'asks' arrays.
+        """
+        # Convert ccxt format (BTC/USDT) to Binance format (BTCUSDT)
+        binance_symbol = symbol.replace('/', '')
+        
+        key = f"orderbook:{binance_symbol}:{limit}"
+        cached = self._get_cached(key)
+        if cached is not None:
+            return cached
+        
+        self._respect_cooldown()
+        
+        try:
+            depth = self.client.get_order_book(symbol=binance_symbol, limit=limit)
+            
+            # Convert to ccxt format
+            result = {
+                'symbol': symbol,
+                'bids': [[float(p), float(q)] for p, q in depth.get('bids', [])],
+                'asks': [[float(p), float(q)] for p, q in depth.get('asks', [])],
+                'timestamp': depth.get('lastUpdateId'),
+                'datetime': None,
+                'nonce': depth.get('lastUpdateId')
+            }
+            
+            self._set_cache(key, 2, result)  # Cache for 2 seconds
+            return result
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response and e.response.status_code in [418, 429]:
+                self._handle_rate_limit(e)
+            raise
+    
+    def load_markets(self):
+        """
+        Load market metadata (optional, for ccxt compatibility).
+        Returns dict of market info.
+        """
+        try:
+            exchange_info = self.client.get_exchange_info()
+            # Cache and return - not critical for operation
+            return exchange_info
         except Exception as e:
-            logger.error(f"Failed to patch ccxt URLs: {e}")
-        # Best-effort market load in a short-lived background thread to avoid blocking
-        try:
-            import threading
-            def _load():
-                global _GLOBAL_MARKETS_LOADED
-                try:
-                    _GLOBAL_EXCHANGE.load_markets()
-                    _GLOBAL_MARKETS_LOADED = True
-                except Exception:
-                    _GLOBAL_MARKETS_LOADED = False
-            t = threading.Thread(target=_load, daemon=True)
-            t.start()
-            t.join(timeout=3)
-        except Exception:
-            pass
-    return _GLOBAL_EXCHANGE
+            logger.warning(f"Could not load markets: {e}")
+            return {}
 
 
 # ==================== CONVENIENCE FUNCTIONS ====================
+
+# Global singleton for market data client
+_MARKET_DATA_CLIENT = None
 
 def get_binance_th_client(api_key: str | None = None, api_secret: str | None = None):
     """Get Binance Thailand API client. Accepts optional per-user API credentials."""
     return BinanceThailandClient(api_key=api_key, api_secret=api_secret)
 
 def get_market_data_client():
-    """Get client for market data with caching and cooldown handling."""
-    try:
-        exchange = get_global_exchange()
-        return MarketDataProxy(exchange)
-    except Exception as e:
-        logger.error(f"Error getting market data client: {e}", exc_info=True)
-        # Fallback: create ephemeral exchange if global one is broken
-        try:
-            fallback = ccxt.binance({
-                'enableRateLimit': True,
-                'rateLimit': 1000,
-                'sandbox': False,
-                'options': {'defaultType': 'spot'}
-            })
-            # Patch URLs for Binance TH
-            fallback.urls['api'] = {
-                'public': 'https://api.binance.th/api',
-                'private': 'https://api.binance.th/api',
-            }
-            fallback.hostname = 'api.binance.th'
-            logger.info("Created fallback exchange with Binance TH URLs")
-            return MarketDataProxy(fallback)
-        except Exception as fallback_error:
-            logger.error(f"Failed to create fallback exchange: {fallback_error}")
-            raise
+    """
+    Get cached market data client using native Binance TH API v1.
+    This replaces ccxt.binance which doesn't support Binance TH endpoints.
+    """
+    global _MARKET_DATA_CLIENT
+    if _MARKET_DATA_CLIENT is None:
+        _MARKET_DATA_CLIENT = BinanceThMarketData()
+        logger.info("Initialized native Binance TH market data client")
+    return _MARKET_DATA_CLIENT
