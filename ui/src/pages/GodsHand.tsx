@@ -22,6 +22,13 @@ export default function GodsHand() {
   
   const isRunning = botStatus?.is_running || false
 
+  // Debug: Log when botStatus.config changes
+  useEffect(() => {
+    if (botStatus?.config) {
+      console.log('🔄 botStatus.config changed:', botStatus.config)
+    }
+  }, [botStatus?.config])
+
   useEffect(() => {
     fetchBotStatus()
     const interval = setInterval(() => {
@@ -36,6 +43,13 @@ export default function GodsHand() {
   const fetchBotStatus = async () => {
     try {
       const response = await apiClient.getAutoBotStatus()
+      
+      console.log('📡 Status API response:', {
+        configId: response.data.config?.id,
+        symbol: response.data.config?.symbol,
+        budget: response.data.config?.budget,
+        fullConfig: response.data.config
+      })
       
       // Update activities separately - only if we have new ones
       const apiActivities = response.data.activity_log || []

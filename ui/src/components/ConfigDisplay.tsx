@@ -17,6 +17,9 @@ interface Props {
 }
 
 export default function ConfigDisplay({ config }: Props) {
+  // Debug: Log when component renders
+  console.log('🎨 ConfigDisplay rendering with config:', config)
+  
   const getRiskColor = (level: string) => {
     switch (level) {
       case 'conservative':
