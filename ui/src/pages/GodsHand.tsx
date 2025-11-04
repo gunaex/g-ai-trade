@@ -140,6 +140,7 @@ export default function GodsHand() {
           name: 'God\'s Hand Bot',
           symbol: 'BTC/USDT',
           budget: 10000,
+          paper_trading: true,
           risk_level: 'moderate',
           min_confidence: 0.7,
           position_size_ratio: 0.95,

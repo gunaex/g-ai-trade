@@ -129,10 +129,10 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
                   budget: v === '' ? 0 : Number.isNaN(parseFloat(v)) ? 0 : parseFloat(v),
                 })
               }}
-              min={100}
-              step={100}
+              min={1}
+              step={1}
             />
-            <span className="form-hint">Total capital allocated to this bot</span>
+            <span className="form-hint">Total capital allocated to this bot (you can test with small amounts, e.g., $10)</span>
           </div>
 
           {/* Paper Trading Toggle */}

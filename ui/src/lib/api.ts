@@ -260,6 +260,7 @@ export interface AutoBotConfig {
   name: string
   symbol: string
   budget: number
+  paper_trading?: boolean
   risk_level: 'conservative' | 'moderate' | 'aggressive'
   min_confidence: number
   position_size_ratio: number

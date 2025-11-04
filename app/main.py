@@ -1517,6 +1517,7 @@ async def create_auto_bot(
             name=config.get('name', 'Auto Bot'),
             symbol=config.get('symbol', 'BTC/USDT'),
             budget=config.get('budget', 10000),
+            paper_trading=config.get('paper_trading', True),
             risk_level=config.get('risk_level', 'moderate'),
             min_confidence=config.get('min_confidence', 0.7),
             position_size_ratio=config.get('position_size_ratio', 0.95),
