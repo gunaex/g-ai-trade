@@ -1592,16 +1592,30 @@ async def start_auto_bot(
         
         # สร้าง AutoTrader instance
         # ใช้ session แยกสำหรับ background
+        logger.info(f"Creating AutoTrader instance for config {config_id}...")
         bot_db = SessionLocal()
         auto_trader_instance = AutoTrader(
             db=bot_db,
             config_id=config_id,
             interval_seconds=300  # 5 minutes
         )
+        logger.info(f"AutoTrader instance created successfully")
         
         # เริ่ม background task (asyncio)
         try:
+            logger.info("Scheduling auto trader background task...")
             asyncio.create_task(auto_trader_instance.start())
+            logger.info("✅ Auto trader task scheduled successfully")
+            
+            # Give the task a moment to actually start
+            await asyncio.sleep(0.5)
+            
+            # Verify it's running
+            if auto_trader_instance.is_running:
+                logger.info(f"✅ Auto trader is_running = True")
+            else:
+                logger.warning(f"⚠️ Auto trader is_running = False (may take a moment to start)")
+                
         except Exception as e:
             logger.error(f"Failed to schedule auto trader task: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to schedule task: {e}")
@@ -1679,6 +1693,7 @@ async def get_auto_bot_status(
         
         if not auto_trader_instance:
             # No instance at all, but return user's saved config if exists
+            logger.info("Status check: No auto_trader_instance exists")
             return {
                 "is_running": False,
                 "ai_modules": {
@@ -1707,6 +1722,7 @@ async def get_auto_bot_status(
 
         if not auto_trader_instance.is_running:
             # Bot stopped: still return recent activity log and config so UI can show stop entry
+            logger.info("Status check: auto_trader_instance exists but is_running = False")
             activity_log = auto_trader_instance.get_activity_log(limit=10)
             # ✅ Use bot's config if available, otherwise user's latest saved config
             config = auto_trader_instance.config.to_dict() if auto_trader_instance.config else (latest_config.to_dict() if latest_config else None)
@@ -1737,6 +1753,7 @@ async def get_auto_bot_status(
             }
         
         # AI Module Status (Real-time simulation)
+        logger.info(f"Status check: auto_trader_instance.is_running = True")
         import random
         ai_modules = {
             "brain": random.randint(90, 100),
