@@ -36,7 +36,9 @@ function ActivityLog({ activities, isRunning }: Props) {
 
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp)
-    return date.toLocaleTimeString('en-US', { 
+    // Convert to Thailand timezone (UTC+7)
+    return date.toLocaleTimeString('th-TH', { 
+      timeZone: 'Asia/Bangkok',
       hour: '2-digit', 
       minute: '2-digit', 
       second: '2-digit',

@@ -5,7 +5,7 @@ Auto Trading Engine
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, List
 from collections import deque
 import pandas as pd
@@ -69,7 +69,7 @@ class AutoTrader:
         # State
         self.is_running = False
         self.current_position: Optional[Dict] = None
-        self.last_check_time = datetime.utcnow()
+        self.last_check_time = datetime.now(timezone.utc)  # UTC with timezone info
         
         # Activity Log (Keep last 100 activities)
         self.activity_log: deque = deque(maxlen=100)
@@ -94,7 +94,7 @@ class AutoTrader:
             data: ข้อมูลเพิ่มเติม (optional)
         """
         activity = {
-            "timestamp": datetime.now().isoformat(),  # Server local time
+            "timestamp": datetime.now(timezone.utc).isoformat(),  # UTC with timezone info
             "message": message,
             "level": level,
             "data": data or {}
@@ -181,7 +181,7 @@ class AutoTrader:
                 await self._find_entry(current_price, ohlcv)
         
             # update last check timestamp
-            self.last_check_time = datetime.utcnow()
+            self.last_check_time = datetime.now(timezone.utc)  # UTC with timezone info
 
         except Exception as e:
             logger.error(f"Trading cycle error: {e}")

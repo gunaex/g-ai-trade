@@ -158,7 +158,13 @@ export default function GodsHand() {
             <span>•</span>
             <span>Budget: ${botStatus.budget?.toLocaleString()}</span>
             <span>•</span>
-            <span>Last Check: {new Date(botStatus.last_check!).toLocaleTimeString()}</span>
+            <span>Last Check: {new Date(botStatus.last_check!).toLocaleTimeString('th-TH', { 
+              timeZone: 'Asia/Bangkok',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false
+            })}</span>
           </div>
         )}
       </div>
@@ -181,6 +187,7 @@ export default function GodsHand() {
               const configResp = await apiClient.getAutoBotConfig(configId)
               const savedConfig = configResp.data as any
               
+              // Update BOTH config AND top-level symbol/budget for consistency
               setBotStatus(prev => ({
                 ...(prev || {
                   is_running: false,
@@ -189,6 +196,8 @@ export default function GodsHand() {
                   last_check: null,
                 }),
                 config: savedConfig,
+                symbol: savedConfig.symbol,  // ✅ Update status banner symbol
+                budget: savedConfig.budget,  // ✅ Update status banner budget
               }))
               
               showToast(`Configuration saved (ID #${configId}).`, 'success')
@@ -266,7 +275,16 @@ export default function GodsHand() {
                 </div>
                 <div className="detail-item">
                   <span className="label">Entry Time:</span>
-                  <span className="value">{new Date(botStatus.current_position.entry_time).toLocaleString()}</span>
+                  <span className="value">{new Date(botStatus.current_position.entry_time).toLocaleString('th-TH', {
+                    timeZone: 'Asia/Bangkok',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                  })}</span>
                 </div>
                 {botStatus.breakeven && (
                   <>
