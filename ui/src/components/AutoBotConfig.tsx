@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Save, Info } from 'lucide-react'
 import apiClient from '../lib/api'
 
@@ -54,10 +54,12 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
   })
 
   const [saving, setSaving] = useState(false)
+  const isDirtyRef = useRef(false)
 
   // Sync with initialConfig if it arrives after mount (avoids defaulting to 10000)
   useEffect(() => {
-    if (initialConfig) {
+    // Only sync from props if user hasn't started editing
+    if (initialConfig && !isDirtyRef.current) {
       setConfig(prev => ({
         ...prev,
         name: initialConfig.name ?? prev.name,
@@ -115,7 +117,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
             <input 
               type="text"
               value={config.name}
-              onChange={(e) => setConfig({...config, name: e.target.value})}
+              onChange={(e) => { isDirtyRef.current = true; setConfig({...config, name: e.target.value}) }}
               placeholder="Enter bot name"
             />
           </div>
@@ -125,7 +127,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
             <label>Trading Symbol</label>
             <select 
               value={config.symbol}
-              onChange={(e) => setConfig({...config, symbol: e.target.value})}
+              onChange={(e) => { isDirtyRef.current = true; setConfig({...config, symbol: e.target.value}) }}
             >
               <option value="BTC/USDT">BTC/USDT</option>
               <option value="ETH/USDT">ETH/USDT</option>
@@ -141,6 +143,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
               value={Number.isFinite(config.budget) ? config.budget : 0}
               onChange={(e) => {
                 const v = e.target.value
+                isDirtyRef.current = true
                 setConfig({
                   ...config,
                   budget: v === '' ? 0 : Number.isNaN(parseFloat(v)) ? 0 : parseFloat(v),
@@ -169,7 +172,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
                 <input 
                   type="checkbox"
                   checked={config.paper_trading}
-                  onChange={(e) => setConfig({...config, paper_trading: e.target.checked})}
+                  onChange={(e) => { isDirtyRef.current = true; setConfig({...config, paper_trading: e.target.checked}) }}
                   style={{ width: '20px', height: '20px' }}
                 />
                 <span style={{ fontWeight: 'bold', color: config.paper_trading ? '#10b981' : '#f59e0b' }}>
@@ -194,7 +197,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
                   name="risk"
                   value="conservative"
                   checked={config.risk_level === 'conservative'}
-                  onChange={(e) => setConfig({...config, risk_level: e.target.value as 'conservative' | 'moderate' | 'aggressive'})}
+                  onChange={(e) => { isDirtyRef.current = true; setConfig({...config, risk_level: e.target.value as 'conservative' | 'moderate' | 'aggressive'}) }}
                 />
                 <span>Conservative</span>
               </label>
@@ -205,7 +208,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
                   name="risk"
                   value="moderate"
                   checked={config.risk_level === 'moderate'}
-                  onChange={(e) => setConfig({...config, risk_level: e.target.value as 'conservative' | 'moderate' | 'aggressive'})}
+                  onChange={(e) => { isDirtyRef.current = true; setConfig({...config, risk_level: e.target.value as 'conservative' | 'moderate' | 'aggressive'}) }}
                 />
                 <span>Moderate</span>
               </label>
@@ -216,7 +219,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
                   name="risk"
                   value="aggressive"
                   checked={config.risk_level === 'aggressive'}
-                  onChange={(e) => setConfig({...config, risk_level: e.target.value as 'conservative' | 'moderate' | 'aggressive'})}
+                  onChange={(e) => { isDirtyRef.current = true; setConfig({...config, risk_level: e.target.value as 'conservative' | 'moderate' | 'aggressive'}) }}
                 />
                 <span>Aggressive</span>
               </label>
@@ -232,7 +235,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
               max="95"
               step="5"
               value={config.min_confidence * 100}
-              onChange={(e) => setConfig({...config, min_confidence: parseFloat(e.target.value) / 100})}
+              onChange={(e) => { isDirtyRef.current = true; setConfig({...config, min_confidence: parseFloat(e.target.value) / 100}) }}
             />
             <div className="range-value">{(config.min_confidence * 100).toFixed(0)}%</div>
             <span className="form-hint">Bot will only trade when AI confidence is above this threshold</span>
@@ -247,7 +250,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
               max="100"
               step="5"
               value={config.position_size_ratio * 100}
-              onChange={(e) => setConfig({...config, position_size_ratio: parseFloat(e.target.value) / 100})}
+              onChange={(e) => { isDirtyRef.current = true; setConfig({...config, position_size_ratio: parseFloat(e.target.value) / 100}) }}
             />
             <div className="range-value">{(config.position_size_ratio * 100).toFixed(0)}%</div>
             <span className="form-hint">Percentage of budget used per trade</span>
@@ -261,6 +264,7 @@ export default function AutoBotConfig({ onClose, onSave, initialConfig }: Props)
               value={Number.isFinite(config.max_daily_loss) ? config.max_daily_loss : 0}
               onChange={(e) => {
                 const v = e.target.value
+                isDirtyRef.current = true
                 setConfig({
                   ...config,
                   max_daily_loss: v === '' ? 0 : Number.isNaN(parseFloat(v)) ? 0 : parseFloat(v),
