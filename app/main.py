@@ -734,20 +734,47 @@ async def get_market_data(symbol: str, currency: str = "USD"):
                 ccxt_symbol = symbol.replace('USDT', '/USDT')
             elif 'USD' in symbol:
                 ccxt_symbol = symbol.replace('USD', '/USD')
+
+        # Best-effort load markets once (prevents symbol mapping issues)
+        try:
+            if getattr(exchange.exchange, 'markets', None) in (None, {}) or getattr(exchange.exchange, 'symbols', None) in (None, []):
+                # Non-blocking intent; if it fails, we'll still try direct fetch
+                exchange.exchange.load_markets()
+        except Exception:
+            pass
         
-        # Get ticker data
-        ticker = exchange.fetch_ticker(ccxt_symbol)
-        
-        # Get OHLCV data
-        ohlcv = exchange.fetch_ohlcv(ccxt_symbol, '1h', limit=24)
+        # Get ticker data (graceful degrade)
+        price = 0.0
+        change_24h = 0.0
+        volume_24h = 0.0
+        high_24h = 0.0
+        low_24h = 0.0
+        ohlcv = []
+
+        try:
+            ticker = exchange.fetch_ticker(ccxt_symbol)
+            price = ticker.get('last') or ticker.get('close') or 0.0
+            change_24h = ticker.get('percentage') or 0.0
+            volume_24h = ticker.get('quoteVolume') or ticker.get('baseVolume') or 0.0
+            high_24h = ticker.get('high') or 0.0
+            low_24h = ticker.get('low') or 0.0
+        except Exception as te:
+            logger.warning(f"Ticker fetch failed for {ccxt_symbol}: {te}")
+
+        # Get OHLCV data (optional)
+        try:
+            ohlcv = exchange.fetch_ohlcv(ccxt_symbol, '1h', limit=24) or []
+        except Exception as oe:
+            logger.warning(f"OHLCV fetch failed for {ccxt_symbol}: {oe}")
+            ohlcv = []
         
         return {
             "symbol": symbol,
-            "price": ticker['last'],
-            "change_24h": ticker['percentage'],
-            "volume_24h": ticker['quoteVolume'],
-            "high_24h": ticker['high'],
-            "low_24h": ticker['low'],
+            "price": price,
+            "change_24h": change_24h,
+            "volume_24h": volume_24h,
+            "high_24h": high_24h,
+            "low_24h": low_24h,
             "ohlcv": ohlcv,
             "currency": currency
         }
