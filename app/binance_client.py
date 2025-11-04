@@ -344,12 +344,15 @@ def get_global_exchange():
     """
     Get (and cache) a global Binance exchange for reliable market data.
     Attempts to load markets once in a best-effort manner without blocking future requests.
+    
+    IMPORTANT: Uses Binance TH (api.binance.th) to avoid geo-restrictions on international endpoints.
     """
     global _GLOBAL_EXCHANGE, _GLOBAL_MARKETS_LOADED
     if _GLOBAL_EXCHANGE is None:
         _GLOBAL_EXCHANGE = ccxt.binance({
             'enableRateLimit': True,
             'rateLimit': 1000,  # ms between requests (conservative)
+            'hostname': 'binance.th',  # Force Thailand endpoint to avoid 451 geo-blocks
             'options': {
                 'defaultType': 'spot',
             }
@@ -389,6 +392,7 @@ def get_market_data_client():
         fallback = ccxt.binance({
             'enableRateLimit': True,
             'rateLimit': 1200,
+            'hostname': 'binance.th',  # Force Thailand endpoint
             'options': {
                 'defaultType': 'spot',
             },
