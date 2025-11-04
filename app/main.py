@@ -1666,10 +1666,10 @@ async def get_auto_bot_status(
     global auto_trader_instance
     
     try:
-        # ✅ Always try to load user's most recent config
+        # ✅ Always try to load user's most recent config (by ID, not created_at)
         latest_config = db.query(BotConfig).filter(
             BotConfig.user_id == current_user["user_id"]
-        ).order_by(BotConfig.created_at.desc()).first()
+        ).order_by(BotConfig.id.desc()).first()
         
         if not auto_trader_instance:
             # No instance at all, but return user's saved config if exists
