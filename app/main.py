@@ -68,6 +68,11 @@ async def init_db():
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("Database initialized successfully")
+        
+        # Run migrations
+        from app.migrations import run_migrations
+        run_migrations()
+        
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         # Don't raise the error - allow the app to start even if DB init fails
